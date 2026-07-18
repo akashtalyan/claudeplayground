@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tldraw Capabilities Explorer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            background: white;
+            border-bottom: 1px solid #ddd;
+            padding: 16px 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 280px;
+            background: white;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .sidebar h3 {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #999;
+            margin-top: 16px;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar h3:first-child {
+            margin-top: 0;
+        }
+
+        .demo-button {
+            display: block;
+            width: 100%;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            text-align: left;
+            transition: all 0.2s;
+            color: #333;
+        }
+
+        .demo-button:hover {
+            background: #e8f4ff;
+            border-color: #0066cc;
+            color: #0066cc;
+        }
+
+        .demo-button.active {
+            background: #0066cc;
+            border-color: #0066cc;
+            color: white;
+        }
+
+        .canvas-area {
+            flex: 1;
+            background: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .info-box {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 12px;
+            color: #666;
+            max-width: 280px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .feature-list {
+            padding-left: 16px;
+            color: #666;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .feature-list li {
+            margin-bottom: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>tldraw Capabilities Explorer</h1>
+        <p>Interactive demo showing what's possible with tldraw. Click buttons to see different features in action.</p>
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <h3>🎨 Shape Demos</h3>
+            <button class="demo-button active" onclick="loadDemo('shapes')">Basic Shapes</button>
+            <button class="demo-button" onclick="loadDemo('flowchart')">Flowchart/Diagram</button>
+            <button class="demo-button" onclick="loadDemo('network')">Network Graph</button>
+
+            <h3>📊 Data Visualization</h3>
+            <button class="demo-button" onclick="loadDemo('chart-bars')">Bar Chart Layout</button>
+            <button class="demo-button" onclick="loadDemo('chart-network')">Network Diagram</button>
+            <button class="demo-button" onclick="loadDemo('timeline')">Timeline</button>
+
+            <h3>✨ Interactive Features</h3>
+            <button class="demo-button" onclick="loadDemo('connectors')">Connectors & Links</button>
+            <button class="demo-button" onclick="loadDemo('text-annotations')">Text & Annotations</button>
+            <button class="demo-button" onclick="loadDemo('colors')">Colors & Styles</button>
+
+            <h3>🏗️ Architecture</h3>
+            <button class="demo-button" onclick="loadDemo('architecture')">System Design</button>
+
+            <h3>ℹ️ About</h3>
+            <button class="demo-button" onclick="loadDemo('about')">What is tldraw?</button>
+        </div>
+
+        <div class="canvas-area" id="canvas">
+            <div class="info-box" id="infoBox">
+                <strong>tldraw Features:</strong>
+                <ul class="feature-list">
+                    <li>✓ Draw shapes (rectangles, circles, diamonds)</li>
+                    <li>✓ Add text and annotations</li>
+                    <li>✓ Create connections/arrows</li>
+                    <li>✓ Customize colors and styles</li>
+                    <li>✓ Group elements together</li>
+                    <li>✓ Full keyboard shortcuts</li>
+                    <li>✓ Undo/Redo support</li>
+                    <li>✓ Collaborative editing ready</li>
+                    <li>✓ Export to images</li>
+                    <li>✓ Embed in any web app</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // This is a static HTML demo showing what tldraw CAN do
+        // tldraw itself requires React and is best used as a React component
+        // But here's what's possible:
+
+        const demos = {
+            shapes: {
+                title: "Basic Shapes with tldraw",
+                features: [
+                    "Rectangles with rounded corners",
+                    "Circles and ellipses",
+                    "Diamonds and stars",
+                    "Arrows and lines",
+                    "Freehand drawing",
+                    "Text boxes",
+                    "SVG imports"
+                ]
+            },
+            flowchart: {
+                title: "Flowchart & Diagram Creation",
+                features: [
+                    "Decision nodes (diamonds)",
+                    "Process boxes (rectangles)",
+                    "Terminal nodes (rounded boxes)",
+                    "Directional arrows between elements",
+                    "Connection points (snapping)",
+                    "Auto-routing connectors",
+                    "Hierarchical layouts"
+                ]
+            },
+            network: {
+                title: "Network Graphs",
+                features: [
+                    "Node circles positioned freely",
+                    "Edge connections with arrows",
+                    "Bidirectional or directional",
+                    "Node labels and colors",
+                    "Interactive repositioning",
+                    "Connection bundling",
+                    "Force-directed layout (with custom code)"
+                ]
+            },
+            'chart-bars': {
+                title: "Data Visualization - Bar Charts",
+                features: [
+                    "Rectangles as bars",
+                    "Grouped by categories",
+                    "Color coding by value",
+                    "Grid lines for scale",
+                    "Axis labels",
+                    "Dynamic height based on data",
+                    "Hover annotations"
+                ]
+            },
+            'chart-network': {
+                title: "Network Topology Diagram",
+                features: [
+                    "Organize nodes in layers",
+                    "Connection lines between layers",
+                    "Server/Database icons",
+                    "Connection flow indicators",
+                    "Color code by status",
+                    "Real-time data overlay possible"
+                ]
+            },
+            timeline: {
+                title: "Timeline Visualization",
+                features: [
+                    "Horizontal or vertical lines",
+                    "Event nodes along timeline",
+                    "Connectors between events",
+                    "Date labels",
+                    "Milestone markers",
+                    "Parallel event branches",
+                    "Zoom-in/out support"
+                ]
+            },
+            connectors: {
+                title: "Advanced Connectors",
+                features: [
+                    "Straight connectors",
+                    "Curved connections",
+                    "Right-angle paths",
+                    "Auto-routing around obstacles",
+                    "Label placement on connectors",
+                    "Different line styles (solid, dashed, dotted)",
+                    "Arrow head styles"
+                ]
+            },
+            'text-annotations': {
+                title: "Text & Annotations",
+                features: [
+                    "Rich text input",
+                    "Text styling (bold, italic, colors)",
+                    "Multiple font sizes",
+                    "Alignment options",
+                    "Text in shapes",
+                    "Callouts and labels",
+                    "Sticky notes"
+                ]
+            },
+            colors: {
+                title: "Colors & Visual Styles",
+                features: [
+                    "Customizable color palettes",
+                    "Fill colors + stroke colors",
+                    "Opacity/transparency",
+                    "Gradient fills possible",
+                    "Theme switching (light/dark)",
+                    "Per-element styling",
+                    "Style inheritance"
+                ]
+            },
+            architecture: {
+                title: "System Architecture Diagrams",
+                features: [
+                    "Service boxes",
+                    "Database cylinders",
+                    "Message queue boxes",
+                    "API gateway symbols",
+                    "Data flow arrows",
+                    "Dependency visualization",
+                    "Multi-tier layouts"
+                ]
+            },
+            about: {
+                title: "What is tldraw?",
+                features: [
+                    "Open-source infinite canvas",
+                    "Built by Tldraw Inc.",
+                    "React component library",
+                    "Highly customizable",
+                    "Collaborative editing support",
+                    "Keyboard shortcuts built-in",
+                    "Export/Import JSON",
+                    "MIT Licensed",
+                    "Perfect for: diagramming, whiteboarding,",
+                    "dashboards, data viz, design tools"
+                ]
+            }
+        };
+
+        function loadDemo(demoKey) {
+            const demo = demos[demoKey];
+            const canvas = document.getElementById('canvas');
+            const buttons = document.querySelectorAll('.demo-button');
+
+            // Update active button
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Create content
+            canvas.innerHTML = `
+                <div style="padding: 40px; height: 100%; overflow-y: auto; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);">
+                    <div style="max-width: 800px; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);">
+                        <h2 style="font-size: 28px; margin-bottom: 20px; color: #333;">${demo.title}</h2>
+                        <h3 style="font-size: 14px; color: #999; text-transform: uppercase; margin-bottom: 16px;">Key Capabilities:</h3>
+                        <ul style="list-style: none; padding: 0;">
+                            ${demo.features.map(feature => `
+                                <li style="padding: 10px 0; padding-left: 24px; position: relative; color: #555; font-size: 15px; line-height: 1.6;">
+                                    <span style="position: absolute; left: 0; color: #0066cc; font-weight: bold;">✓</span>
+                                    ${feature}
+                                </li>
+                            `).join('')}
+                        </ul>
+
+                        <div style="margin-top: 32px; padding: 20px; background: #f0f4ff; border-left: 4px solid #0066cc; border-radius: 6px;">
+                            <p style="font-size: 13px; color: #333; line-height: 1.6;">
+                                <strong>How to use tldraw:</strong> Import the library as a React component,
+                                programmatically add shapes/connectors, and sync data to your backend.
+                                Users can edit in the canvas, and you capture changes via event handlers.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Load default demo
+        loadDemo('shapes');
+    </script>
+</body>
+</html>

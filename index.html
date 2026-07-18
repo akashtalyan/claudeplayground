@@ -19,6 +19,18 @@
       --shadow:0 2px 10px rgba(0,0,0,.4);
     }
   }
+  :root[data-theme="dark"]{
+    --paper:#191713; --panel:#211e19; --ink:#ece7da; --ink-soft:#a49d8d;
+    --accent:#e0824a; --accent-soft:#3a2a1c; --good:#6fc492; --warn:#d8b45a;
+    --line:#38342b; --sea:#1d211f; --land:#2a2721; --coast:#57503f;
+    --shadow:0 2px 10px rgba(0,0,0,.4);
+  }
+  :root[data-theme="light"]{
+    --paper:#faf6ec; --panel:#fffdf6; --ink:#2b2a26; --ink-soft:#6b675c;
+    --accent:#c2571d; --accent-soft:#f3ddca; --good:#2e7d4f; --warn:#b5891f;
+    --line:#e4dcc8; --sea:#eef3f2; --land:#f6efe0; --coast:#b9b09a;
+    --shadow:0 2px 10px rgba(60,50,30,.08);
+  }
   *{box-sizing:border-box; margin:0; padding:0;}
   html,body{height:100%;}
   body{
@@ -95,6 +107,24 @@
   #shareOut{font-size:.8rem; color:var(--good); align-self:center;}
   .legend{font-size:.85rem; color:var(--ink-soft); line-height:1.6;}
   footer{margin-top:26px; font-size:.78rem; color:var(--ink-soft); font-style:italic;}
+  #tunePanel{
+    width:100%; max-width:980px; margin-top:16px;
+    background:var(--panel); border:1.5px dashed var(--ink-soft); border-radius:12px;
+  }
+  #tunePanel summary{
+    cursor:pointer; padding:10px 14px; font-size:.85rem; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-soft);
+  }
+  .tune-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));
+    gap:14px 22px; padding:6px 16px 4px;
+  }
+  .tune-grid label{display:flex; flex-direction:column; gap:4px; font-size:.85rem; color:var(--ink-soft);}
+  .tune-grid output{font-variant-numeric:tabular-nums; color:var(--ink); font-style:italic;}
+  .tune-grid input[type=range]{accent-color:var(--accent); width:100%;}
+  .tune-check{flex-direction:row !important; align-items:center; gap:8px !important;}
+  .tune-note{font-size:.78rem; font-style:italic; color:var(--ink-soft); padding:8px 16px 14px;}
+  .tune-note button{font-size:.78rem; padding:2px 10px; margin-left:6px;}
 </style>
 </head>
 <body>
@@ -151,6 +181,29 @@
 
 <ol id="guessList"></ol>
 
+<details id="tunePanel">
+  <summary>⚙️ game tuning — fundamental knobs, live</summary>
+  <div class="tune-grid">
+    <label>win radius <output id="o-winKm"></output>
+      <input type="range" data-k="winKm" min="50" max="1000" step="25"></label>
+    <label>guesses per round <output id="o-maxGuesses"></output>
+      <input type="range" data-k="maxGuesses" min="3" max="10" step="1"></label>
+    <label>starting reveal <output id="o-base"></output>
+      <input type="range" data-k="base" min="0" max="0.35" step="0.01"></label>
+    <label>pity reveal per guess <output id="o-perGuess"></output>
+      <input type="range" data-k="perGuess" min="0" max="0.15" step="0.01"></label>
+    <label>distance scale <output id="o-scaleKm"></output>
+      <input type="range" data-k="scaleKm" min="3000" max="15000" step="500"></label>
+    <label>curve steepness <output id="o-exp"></output>
+      <input type="range" data-k="exp" min="1" max="4" step="0.1"></label>
+    <label>pre-win reveal cap <output id="o-cap"></output>
+      <input type="range" data-k="cap" min="0.5" max="1" step="0.01"></label>
+    <label class="tune-check"><input type="checkbox" data-k="arrows"> compass direction hints</label>
+  </div>
+  <p class="tune-note">reveal knobs re-score the current round instantly; win radius and guess
+     count apply to your next guess. <button id="tuneReset">reset defaults</button></p>
+</details>
+
 <dialog id="helpDlg">
   <h3>How to play</h3>
   <p>Somewhere in the world, a famous landmark is being sketched — but the artist
@@ -159,7 +212,7 @@
     📍 Tap the map to drop a pin, then hit <b>Guess</b>.<br>
     ✏️ The closer your pin is to the landmark, the more of the sketch is revealed.<br>
     🧭 Each guess shows the distance and the direction toward the target.<br>
-    🏆 Land within <b>250 km</b> in <b>6 guesses</b> to win.
+    🏆 Land within <b id="helpWin">250 km</b> in <b id="helpGuesses">6 guesses</b> to win.
   </p>
   <p class="legend">🟩 &lt;250 km · 🟨 &lt;1,500 km · 🟧 &lt;4,000 km · 🟥 beyond</p>
   <div class="btn-row"><button class="primary" onclick="this.closest('dialog').close()">Let's sketch</button></div>
@@ -362,7 +415,17 @@ function fmtKm(d){ return Math.round(d).toLocaleString() + " km"; }
 function hashStr(s){ let h = 2166136261; for (const c of s){ h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 
 /* --------------------------------------------------------- game state --- */
-const WIN_KM = 250, MAX_GUESSES = 6;
+/* Fundamental knobs — exposed live in the ⚙️ tuning panel */
+const TUNE = {
+  winKm: 250,     // how close a pin must land to win
+  maxGuesses: 6,  // guesses per round
+  base: 0.10,     // fraction of the sketch shown before any guess
+  perGuess: 0.05, // guaranteed extra reveal per guess, however bad
+  scaleKm: 9000,  // distance at which proximity reveal bottoms out
+  exp: 2.2,       // curve steepness: higher = stingy until you're close
+  cap: 0.93,      // max reveal before the round ends
+  arrows: true,   // show compass direction hints
+};
 const todayStr = new Date().toISOString().slice(0, 10);
 const dailyIdx = hashStr("landmarkle-" + todayStr) % LANDMARKS.length;
 let target, guesses, bestD, over, dailyMode;
@@ -392,16 +455,17 @@ function setReveal(f){
   }
   $("revealFill").style.width = (f * 100) + "%";
   $("meterLabel").textContent = over
-    ? (bestD !== null && bestD < WIN_KM ? "fully revealed — you found it!" : "fully revealed")
+    ? (bestD !== null && bestD < TUNE.winKm ? "fully revealed — you found it!" : "fully revealed")
     : Math.round(f * 100) + "% revealed — " +
       (guesses.length ? "best guess " + fmtKm(bestD) + " away" : "make a guess to see more");
 }
 function revealFraction(){
   if (over) return 1;
-  const base = 0.10 + guesses.length * 0.05;
+  const base = TUNE.base + guesses.length * TUNE.perGuess;
   if (bestD === null) return base;
-  const prox = 0.10 + 0.90 * Math.pow(Math.max(0, 1 - bestD / 9000), 2.2);
-  return Math.min(0.93, Math.max(base, prox));
+  const prox = TUNE.base + (1 - TUNE.base) *
+    Math.pow(Math.max(0, 1 - bestD / TUNE.scaleKm), TUNE.exp);
+  return Math.min(TUNE.cap, Math.max(base, prox));
 }
 
 function startGame(idx, daily){
@@ -516,11 +580,11 @@ $("guessBtn").addEventListener("click", () => {
   li.innerHTML = `<span class="num">${guesses.length}.</span>` +
     `<span>${squareFor(d)} ${tempFor(d)}</span>` +
     `<span class="dist">${fmtKm(d)}</span>` +
-    `<span class="arrow">${d < WIN_KM ? "🎯" : arrowFor(brg)}</span>` +
+    `<span class="arrow">${d < TUNE.winKm ? "🎯" : (TUNE.arrows ? arrowFor(brg) : "·")}</span>` +
     `<span></span>`;
   $("guessList").prepend(li);
-  const won = d < WIN_KM;
-  if (won || guesses.length >= MAX_GUESSES) return endGame(won);
+  const won = d < TUNE.winKm;
+  if (won || guesses.length >= TUNE.maxGuesses) return endGame(won);
   setReveal(revealFraction());
   $("guessBtn").disabled = true;
   pin = null;
@@ -549,9 +613,9 @@ function endGame(won){
 
 $("shareBtn").addEventListener("click", () => {
   const rows = guesses.map(g => squareFor(g.d)).join("");
-  const won = bestD !== null && bestD < WIN_KM;
+  const won = bestD !== null && bestD < TUNE.winKm;
   const text = `✏️ Landmarkle ${dailyMode ? todayStr : "(free play)"} ` +
-    `${won ? guesses.length : "X"}/${MAX_GUESSES}\n${rows}`;
+    `${won ? guesses.length : "X"}/${TUNE.maxGuesses}\n${rows}`;
   navigator.clipboard.writeText(text).then(
     () => $("shareOut").textContent = "copied!",
     () => $("shareOut").textContent = text);
@@ -589,6 +653,39 @@ function showStreak(){
     $("streakBadge").textContent = s.streak > 0 ? `🔥 ${s.streak}` : "";
   } catch (e) { /* private browsing */ }
 }
+
+/* ------------------------------------------------------- tuning panel --- */
+const TUNE_DEFAULTS = { ...TUNE };
+function fmtTune(k, v){
+  if (k === "winKm") return Math.round(v) + " km";
+  if (k === "scaleKm") return Math.round(v).toLocaleString() + " km";
+  if (k === "maxGuesses") return v;
+  if (k === "exp") return "^" + v.toFixed(1);
+  return Math.round(v * 100) + "%";
+}
+function syncTuneUI(){
+  document.querySelectorAll("#tunePanel input").forEach(inp => {
+    const k = inp.dataset.k;
+    if (inp.type === "checkbox") inp.checked = TUNE[k];
+    else { inp.value = TUNE[k]; $("o-" + k).value = fmtTune(k, TUNE[k]); }
+  });
+  $("helpWin").textContent = Math.round(TUNE.winKm) + " km";
+  $("helpGuesses").textContent = TUNE.maxGuesses + " guesses";
+}
+document.querySelectorAll("#tunePanel input").forEach(inp => {
+  inp.addEventListener("input", () => {
+    const k = inp.dataset.k;
+    TUNE[k] = inp.type === "checkbox" ? inp.checked : parseFloat(inp.value);
+    syncTuneUI();
+    if (!over) setReveal(revealFraction());
+  });
+});
+$("tuneReset").addEventListener("click", () => {
+  Object.assign(TUNE, TUNE_DEFAULTS);
+  syncTuneUI();
+  if (!over) setReveal(revealFraction());
+});
+syncTuneUI();
 
 /* --------------------------------------------------------------- boot --- */
 showStreak();

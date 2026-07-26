@@ -1,5 +1,11 @@
+import { getAssetUrlsByImport } from '@tldraw/assets/imports.vite'
 import { useRef } from 'react'
 import { Tldraw, createShapeId, type Editor, type TLShapePartial } from 'tldraw'
+
+import { getInlineIconUrls } from './inlineIcons'
+
+const baseAssetUrls = getAssetUrlsByImport()
+const assetUrls = { ...baseAssetUrls, icons: { ...baseAssetUrls.icons, ...getInlineIconUrls() } }
 
 // 🌳 Fractal tree
 function drawFractalTree(editor: Editor) {
@@ -53,6 +59,7 @@ function App() {
 	return (
 		<div style={{ position: 'fixed', inset: 0 }}>
 			<Tldraw
+				assetUrls={assetUrls}
 				onMount={(editor) => {
 					editorRef.current = editor
 				}}

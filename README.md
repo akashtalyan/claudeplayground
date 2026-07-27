@@ -1,3 +1,20 @@
+# 🎨 Emotion Sticker Playground
+
+Type an emotion — get a hand-painted-looking mood sticker, in the style of
+watercolor journal apps. **Try it:** open `stickers.html` in any browser.
+
+- Everything is drawn procedurally on a `<canvas>` — no images, no AI, no
+  server. Blob silhouette + layered watercolor pigment + paper grain + a
+  minimal ink face, all from a seeded RNG so every sticker is reproducible.
+- ~25 emotion families with synonym + fuzzy matching, and blends:
+  `anxious but excited` gradients between both moods.
+- 🎲 **Remix** re-rolls the same emotion with a new seed; unknown words get an
+  improvised on-style sticker. Recent stickers collect on a shelf
+  (`localStorage`), and PNG export is 512×512 with transparency —
+  sticker-pack ready.
+
+---
+
 # ✏️ Landmarkle
 
 A sketch-reveal geography guessing game. Somewhere in the world, a famous

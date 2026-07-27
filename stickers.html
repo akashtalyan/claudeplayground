@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emotion Sticker Playground</title>
+<style>
+  :root {
+    --bg: #f5f2ec;
+    --ink: #3e3a36;
+    --card: #ffffff;
+    --muted: #a29a8f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Comfortaa", "Quicksand", "Varela Round", "Trebuchet MS", ui-rounded, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 28px 16px 48px;
+  }
+  h1 {
+    font-size: 1.7rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    margin-bottom: 4px;
+  }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 22px; }
+
+  .inputrow {
+    display: flex;
+    gap: 8px;
+    width: min(420px, 92vw);
+    margin-bottom: 12px;
+  }
+  #emotion {
+    flex: 1;
+    font: inherit;
+    font-size: 1rem;
+    padding: 12px 18px;
+    border: 2px solid #e5dfd5;
+    border-radius: 999px;
+    background: var(--card);
+    color: var(--ink);
+    outline: none;
+    transition: border-color .15s;
+  }
+  #emotion:focus { border-color: #d3c6ae; }
+  button {
+    font: inherit;
+    font-weight: 700;
+    border: none;
+    border-radius: 999px;
+    padding: 12px 20px;
+    cursor: pointer;
+    background: var(--ink);
+    color: #fffdf8;
+    transition: transform .08s;
+  }
+  button:active { transform: scale(0.94); }
+  button.ghost {
+    background: #eee8dd;
+    color: var(--ink);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    width: min(460px, 94vw);
+    margin-bottom: 20px;
+  }
+  .chip {
+    font-size: 0.78rem;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: #ece6da;
+    color: #6d6558;
+    cursor: pointer;
+    user-select: none;
+    transition: background .12s;
+  }
+  .chip:hover { background: #e2d9c8; }
+
+  .stage {
+    background: var(--card);
+    border-radius: 28px;
+    padding: 26px 26px 18px;
+    box-shadow: 0 8px 30px rgba(90, 80, 60, 0.08);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  #sticker {
+    width: min(320px, 78vw);
+    height: min(320px, 78vw);
+    display: block;
+  }
+  #sticker.pop { animation: pop .45s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes pop {
+    0% { transform: scale(.86); }
+    100% { transform: scale(1); }
+  }
+  #caption {
+    margin-top: 6px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+
+  .actions { display: flex; gap: 8px; margin-bottom: 26px; }
+
+  .shelfwrap { width: min(460px, 94vw); }
+  .shelfwrap h2 {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-weight: 700;
+    text-transform: lowercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+  #shelf {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  #shelf canvas {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+    background: var(--card);
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(90, 80, 60, 0.07);
+    transition: transform .1s;
+  }
+  #shelf canvas:hover { transform: scale(1.08); }
+  footer {
+    margin-top: 30px;
+    font-size: 0.72rem;
+    color: #c0b8ab;
+    text-align: center;
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+
+<h1>How do you feel?</h1>
+<div class="sub">type an emotion &mdash; get a sticker</div>
+
+<div class="inputrow">
+  <input id="emotion" type="text" placeholder="happy, anxious but excited, in love&hellip;"
+         autocomplete="off" spellcheck="false" autofocus>
+  <button id="go">Generate</button>
+</div>
+
+<div class="chips" id="chips"></div>
+
+<div class="stage">
+  <canvas id="sticker" width="1024" height="1024"></canvas>
+  <div id="caption"></div>
+</div>
+
+<div class="actions">
+  <button class="ghost" id="remix" title="same emotion, new sticker">&#127922; Remix</button>
+  <button class="ghost" id="save" title="download PNG">&#11015; PNG</button>
+</div>
+
+<div class="shelfwrap">
+  <h2>your stickers</h2>
+  <div id="shelf"></div>
+</div>
+
+<footer>
+  everything is drawn procedurally on a &lt;canvas&gt; &mdash; no images, no AI, no server.<br>
+  PNGs export with transparent backgrounds, sticker-pack ready.
+</footer>
+
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------- rng --- */
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/* ------------------------------------------------------------- lexicon --- */
+/* Each family: pastel fill colors, blob shape, and a face recipe.          */
+
+const FAMILIES = {
+  happy:       { c: "#F7DE6A", cl: "#FBEFAE", shape: "round",  eyes: "dot",      mouth: "smile",    blush: true },
+  excited:     { c: "#F7C85C", cl: "#FBE29E", shape: "round",  eyes: "star",     mouth: "bigsmile", blush: true,  extras: ["sparkle"] },
+  surprised:   { c: "#F2B25C", cl: "#F7D49C", shape: "round",  eyes: "wide",     mouth: "o",        brows: "up" },
+  love:        { c: "#F49BB0", cl: "#F9C6D2", shape: "heart",  eyes: "happy",    mouth: "smile",    blush: true,  extras: ["hearts"] },
+  laughing:    { c: "#EFA9DC", cl: "#F6CFEC", shape: "round",  eyes: "squeeze",  mouth: "bigsmile", blush: true },
+  neutral:     { c: "#9FD3AC", cl: "#C6E6CE", shape: "round",  eyes: "dot",      mouth: "flat" },
+  sad:         { c: "#8FC7EF", cl: "#BEDFF6", shape: "droopy", eyes: "sad",      mouth: "frown",    extras: ["tear"] },
+  crying:      { c: "#8FC7EF", cl: "#BEDFF6", shape: "droopy", eyes: "teary",    mouth: "wavy",     extras: ["tears"] },
+  calm:        { c: "#A6DC7E", cl: "#CBEAAF", shape: "round",  eyes: "closed",   mouth: "smile" },
+  gloomy:      { c: "#ABABAB", cl: "#CCCCCC", shape: "cloud",  eyes: "worried",  mouth: "o",        brows: "sad" },
+  angry:       { c: "#E15A32", cl: "#EF8A5B", shape: "grumpy", eyes: "angry",    mouth: "grit",     extras: ["vein"] },
+  sick:        { c: "#C9B396", cl: "#DDCFB8", shape: "round",  eyes: "flatline", mouth: "none",     extras: ["mask"] },
+  tired:       { c: "#6FCFCB", cl: "#A5E2DF", shape: "droopy", eyes: "halflid",  mouth: "flat" },
+  relieved:    { c: "#7C87CD", cl: "#A6AEDF", shape: "round",  eyes: "closed",   mouth: "smile",    extras: ["sweat"] },
+  worried:     { c: "#55997C", cl: "#86B9A0", shape: "droopy", eyes: "worried",  mouth: "smallfrown", brows: "sad" },
+  sleepy:      { c: "#8FB8EF", cl: "#BBD4F6", shape: "droopy", eyes: "flatline", mouth: "none",     extras: ["drool", "zzz"] },
+  stressed:    { c: "#B9A8E3", cl: "#D5CAEF", shape: "round",  eyes: "uneven",   mouth: "o",        extras: ["stress"] },
+  embarrassed: { c: "#F3B8C8", cl: "#F9D8E1", shape: "round",  eyes: "dot",      mouth: "wavy",     blush: "big", extras: ["sweat"] },
+  scared:      { c: "#A9C4E8", cl: "#CBDCF2", shape: "round",  eyes: "wide",     mouth: "wavy",     extras: ["sweat"] },
+  proud:       { c: "#F2C94C", cl: "#F8E29A", shape: "round",  eyes: "happy",    mouth: "smile",    extras: ["sparkle"] },
+  confused:    { c: "#9FD3AC", cl: "#C6E6CE", shape: "round",  eyes: "uneven",   mouth: "wavy" },
+  annoyed:     { c: "#D98B6A", cl: "#EAB79F", shape: "round",  eyes: "halflid",  mouth: "flat",     extras: ["vein"] },
+  silly:       { c: "#EFA9DC", cl: "#F6CFEC", shape: "round",  eyes: "wink",     mouth: "tongue",   blush: true },
+  hopeful:     { c: "#C9E07E", cl: "#E0EDB0", shape: "round",  eyes: "dot",      mouth: "smile",    extras: ["sparkle"] },
+  jealous:     { c: "#8FBF6E", cl: "#B5D69C", shape: "round",  eyes: "halflid",  mouth: "wavy" },
+};
+
+const SYNONYMS = {
+  happy: ["joy", "joyful", "glad", "cheerful", "good", "great", "content", "sunny", "delighted", "yay"],
+  excited: ["thrilled", "hyped", "pumped", "eager", "stoked", "energetic"],
+  surprised: ["shocked", "amazed", "astonished", "wow", "startled", "stunned"],
+  love: ["loved", "loving", "adored", "crush", "heart", "in love", "smitten", "affection", "adore"],
+  laughing: ["lol", "haha", "amused", "giggly", "hilarious", "funny", "giggling"],
+  neutral: ["meh", "fine", "okay", "ok", "blah", "whatever", "indifferent"],
+  sad: ["down", "unhappy", "hurt", "blue", "melancholy", "gloom", "low", "upset", "lonely"],
+  crying: ["sobbing", "tearful", "weeping", "heartbroken", "devastated", "grief", "bawling"],
+  calm: ["peaceful", "serene", "relaxed", "cozy", "chill", "zen", "tranquil", "at peace", "mellow"],
+  gloomy: ["depressed", "miserable", "hopeless", "despair", "dreary", "grim"],
+  angry: ["mad", "furious", "rage", "pissed", "frustrated", "livid", "fuming", "grr", "irate"],
+  sick: ["ill", "unwell", "flu", "cold", "nauseous", "queasy", "under the weather"],
+  tired: ["exhausted", "drained", "unimpressed", "done", "over it", "weary", "fatigued", "bored", "burnt out", "burned out"],
+  relieved: ["phew", "grateful", "thankful", "unburdened"],
+  worried: ["anxious", "nervous", "uneasy", "apprehensive", "concerned", "dread", "worry", "anxiety"],
+  sleepy: ["drowsy", "snoozy", "zzz", "dozy", "nap"],
+  stressed: ["overwhelmed", "panicked", "panicking", "freaking out", "frazzled", "frantic", "panic"],
+  embarrassed: ["shy", "awkward", "blushing", "sheepish", "flustered", "cringe", "bashful"],
+  scared: ["afraid", "terrified", "spooked", "frightened", "fearful", "horrified"],
+  proud: ["confident", "accomplished", "triumphant", "victorious"],
+  confused: ["puzzled", "huh", "unsure", "perplexed", "baffled", "lost"],
+  annoyed: ["irritated", "grumpy", "cranky", "bothered", "irked", "peeved"],
+  silly: ["goofy", "playful", "wacky", "mischievous", "cheeky"],
+  hopeful: ["optimistic", "inspired", "motivated"],
+  jealous: ["envious", "envy"],
+};
+
+const LOOKUP = {};
+for (const name of Object.keys(FAMILIES)) LOOKUP[name] = name;
+for (const [name, syns] of Object.entries(SYNONYMS))
+  for (const s of syns) LOOKUP[s] = name;
+
+function editDist(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 99;
+  const m = a.length, n = b.length;
+  const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1,
+                         d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[m][n];
+}
+
+function matchOne(word) {
+  word = word.trim().toLowerCase().replace(/^(so|very|really|super|kinda|a bit|bit|pretty|extremely|quite|feeling|i feel|i am|i'm|im)\s+/g, "").trim();
+  if (!word) return null;
+  if (LOOKUP[word]) return LOOKUP[word];
+  // substring: "happiness" -> happy-ish stems
+  for (const key of Object.keys(LOOKUP)) {
+    if (word.startsWith(key) || key.startsWith(word)) return LOOKUP[key];
+  }
+  // fuzzy
+  let best = null, bestD = 3;
+  for (const key of Object.keys(LOOKUP)) {
+    const dd = editDist(word, key);
+    if (dd < bestD) { bestD = dd; best = LOOKUP[key]; }
+  }
+  return best;
+}
+
+/* Parse free text -> spec. Handles blends: "anxious but excited".          */
+function interpret(text) {
+  const parts = text.split(/\s*(?:\+|,|&|\band\b|\bbut\b|\byet\b|\bwith\b|\bplus\b)\s*/i).filter(Boolean);
+  const matches = [];
+  for (const p of parts) {
+    const m = matchOne(p);
+    if (m && !matches.includes(m)) matches.push(m);
+    if (matches.length === 2) break;
+  }
+
+  if (matches.length === 0) {
+    // improvise: derive a stable on-style spec from the text hash
+    const r = mulberry32(hashStr(text.toLowerCase()));
+    const keys = Object.keys(FAMILIES);
+    const a = FAMILIES[keys[(r() * keys.length) | 0]];
+    const b = FAMILIES[keys[(r() * keys.length) | 0]];
+    return {
+      label: "improvised ✨",
+      c: a.c, cl: a.cl, c2: b.c,
+      shape: r() < 0.7 ? "round" : a.shape,
+      eyes: a.eyes, mouth: b.mouth, brows: a.brows,
+      blush: r() < 0.5, extras: (r() < 0.4 && a.extras) ? a.extras : [],
+    };
+  }
+
+  const A = FAMILIES[matches[0]];
+  if (matches.length === 1) {
+    return { label: matches[0], ...A, extras: A.extras || [] };
+  }
+  // blend: colors from both, eyes from first, mouth from second
+  const B = FAMILIES[matches[1]];
+  return {
+    label: matches[0] + " × " + matches[1],
+    c: A.c, cl: A.cl, c2: B.c,
+    shape: A.shape === "round" ? B.shape : A.shape,
+    eyes: A.eyes, mouth: B.mouth, brows: A.brows || B.brows,
+    blush: A.blush || B.blush,
+    extras: [...new Set([...(A.extras || []), ...(B.extras || [])])].slice(0, 2),
+  };
+}
+
+/* -------------------------------------------------------- color helpers --- */
+
+function hexRgb(h) {
+  return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+}
+function mix(h1, h2, t) {
+  const a = hexRgb(h1), b = hexRgb(h2);
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
+}
+function darken(h, t) { return mix(h, "#403830", t); }
+
+const INK = "#3E3A36";
+
+/* --------------------------------------------------------- blob shapes --- */
+
+function blobPoints(rng, shape, R) {
+  const pts = [];
+  let n = 9, wob = 0.09;
+  if (shape === "cloud") { n = 12; wob = 0.05; }
+  if (shape === "grumpy") { n = 10; wob = 0.13; }
+  const phase = rng() * Math.PI * 2;
+
+  if (shape === "heart") {
+    for (let i = 0; i < 24; i++) {
+      const t = (i / 24) * Math.PI * 2;
+      let x = 16 * Math.pow(Math.sin(t), 3);
+      let y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+      const j = 1 + (rng() - 0.5) * 0.06;
+      pts.push([x * (R / 15) * j, (y * (R / 15) - R * 0.08) * j]);
+    }
+    return pts;
+  }
+
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+    let r = R * (1 + (rng() - 0.5) * 2 * wob);
+    if (shape === "cloud") r *= 1 + 0.13 * Math.abs(Math.sin(a * 2.5 + phase));
+    let x = Math.cos(a) * r;
+    let y = Math.sin(a) * r;
+    if (shape === "droopy" && y > 0) { x *= 1.14; y *= 1.06; }
+    if (shape === "droopy" && y < 0) { x *= 0.92; }
+    pts.push([x, y]);
+  }
+  return pts;
+}
+
+/* closed catmull-rom -> bezier */
+function tracePath(ctx, pts) {
+  const n = pts.length;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    if (i === 0) ctx.moveTo(p1[0], p1[1]);
+    ctx.bezierCurveTo(
+      p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6,
+      p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6,
+      p2[0], p2[1]);
+  }
+  ctx.closePath();
+}
+
+/* ------------------------------------------------------------- grain ----- */
+
+let grainCanvas = null;
+function getGrain() {
+  if (grainCanvas) return grainCanvas;
+  const g = document.createElement("canvas");
+  g.width = g.height = 256;
+  const gc = g.getContext("2d");
+  const img = gc.createImageData(256, 256);
+  const r = mulberry32(7);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = 100 + r() * 110;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+    img.data[i + 3] = 255;
+  }
+  gc.putImageData(img, 0, 0);
+  grainCanvas = g;
+  return g;
+}
+
+/* ----------------------------------------------------- watercolor body --- */
+
+function paintBody(ctx, spec, rng, R) {
+  const pts = blobPoints(rng, spec.shape, R);
+
+  // pigment layers: base + 2 offset blotches
+  for (let layer = 0; layer < 3; layer++) {
+    ctx.save();
+    const jx = layer === 0 ? 0 : (rng() - 0.5) * 22;
+    const jy = layer === 0 ? 0 : (rng() - 0.5) * 22;
+    const sc = layer === 0 ? 1 : 0.97 + rng() * 0.05;
+    ctx.translate(jx, jy);
+    ctx.scale(sc, sc);
+    tracePath(ctx, pts);
+    const grad = ctx.createLinearGradient(0, -R, 0, R);
+    if (spec.c2) {
+      grad.addColorStop(0, mix(spec.cl, "#ffffff", 0.15));
+      grad.addColorStop(0.45, spec.c);
+      grad.addColorStop(1, spec.c2);
+    } else {
+      grad.addColorStop(0, mix(spec.cl, "#ffffff", 0.15));
+      grad.addColorStop(1, spec.c);
+    }
+    ctx.fillStyle = grad;
+    ctx.globalAlpha = layer === 0 ? 0.92 : 0.16;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // edge pooling: darker blurred rim, clipped inside
+  ctx.save();
+  tracePath(ctx, pts);
+  ctx.clip();
+  ctx.filter = "blur(9px)";
+  tracePath(ctx, pts);
+  ctx.strokeStyle = darken(spec.c2 || spec.c, 0.24);
+  ctx.lineWidth = 30;
+  ctx.globalAlpha = 0.42;
+  ctx.stroke();
+  ctx.filter = "none";
+
+  // soft inner pigment pools
+  for (let i = 0; i < 3; i++) {
+    const px = (rng() - 0.5) * R * 1.1, py = (rng() - 0.5) * R * 1.1;
+    const pr = R * (0.25 + rng() * 0.3);
+    const rg = ctx.createRadialGradient(px, py, 0, px, py, pr);
+    rg.addColorStop(0, darken(spec.c, 0.12));
+    rg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = rg;
+    ctx.globalAlpha = 0.10;
+    ctx.fillRect(-R * 1.5, -R * 1.5, R * 3, R * 3);
+  }
+
+  // paper grain
+  ctx.globalAlpha = 0.32;
+  ctx.globalCompositeOperation = "soft-light";
+  ctx.drawImage(getGrain(), -R * 1.4, -R * 1.4, R * 2.8, R * 2.8);
+  ctx.restore();
+}
+
+/* --------------------------------------------------------- face pieces --- */
+/* Each feature draws around its own (0,0) so animation can pop it in.      */
+
+function ink(ctx, w) {
+  ctx.strokeStyle = INK;
+  ctx.fillStyle = INK;
+  ctx.lineWidth = w;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+}
+
+const EYES = {
+  dot(ctx, s) { ctx.beginPath(); ctx.arc(0, 0, 11 * s, 0, 7); ctx.fill(); },
+  happy(ctx, s) { ink(ctx, 9 * s); ctx.beginPath(); ctx.arc(0, 5 * s, 16 * s, Math.PI, Math.PI * 2); ctx.stroke(); },
+  closed(ctx, s) { ink(ctx, 9 * s); ctx.beginPath(); ctx.arc(0, -6 * s, 16 * s, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke(); },
+  flatline(ctx, s) { ink(ctx, 9 * s); ctx.beginPath(); ctx.moveTo(-14 * s, 0); ctx.quadraticCurveTo(0, 5 * s, 14 * s, 0); ctx.stroke(); },
+  squeeze(ctx, s, side) { // > <
+    ink(ctx, 9 * s);
+    const d = side < 0 ? 1 : -1;
+    ctx.beginPath();
+    ctx.moveTo(-12 * s * d, -12 * s);
+    ctx.lineTo(8 * s * d, 0);
+    ctx.lineTo(-12 * s * d, 12 * s);
+    ctx.stroke();
+  },
+  wide(ctx, s) {
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath(); ctx.ellipse(0, 0, 15 * s, 19 * s, 0, 0, 7); ctx.fill();
+    ink(ctx, 6.5 * s);
+    ctx.beginPath(); ctx.ellipse(0, 0, 15 * s, 19 * s, 0, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 2 * s, 5 * s, 0, 7); ctx.fill();
+  },
+  halflid(ctx, s) {
+    ink(ctx, 9 * s);
+    ctx.beginPath(); ctx.moveTo(-14 * s, -2 * s); ctx.lineTo(14 * s, -2 * s); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 6 * s, 7 * s, 0, Math.PI); ctx.fill();
+  },
+  sad(ctx, s, side) {
+    ctx.beginPath(); ctx.arc(0, 0, 10 * s, 0, 7); ctx.fill();
+    ink(ctx, 7 * s);
+    const d = side < 0 ? 1 : -1;
+    ctx.beginPath();
+    ctx.moveTo(-12 * s * d, -20 * s);
+    ctx.quadraticCurveTo(2 * s * d, -16 * s, 10 * s * d, -22 * s);
+    ctx.stroke();
+  },
+  teary(ctx, s) {
+    ctx.beginPath(); ctx.arc(0, 0, 11 * s, 0, 7); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.beginPath(); ctx.arc(-4 * s, -4 * s, 4 * s, 0, 7); ctx.fill();
+  },
+  worried(ctx, s) { ctx.beginPath(); ctx.arc(0, 0, 9 * s, 0, 7); ctx.fill(); },
+  angry(ctx, s, side) {
+    ink(ctx, 11 * s);
+    const d = side < 0 ? 1 : -1;
+    ctx.beginPath();
+    ctx.moveTo(-14 * s * d, -9 * s);
+    ctx.lineTo(13 * s * d, 5 * s);
+    ctx.stroke();
+  },
+  uneven(ctx, s, side) {
+    if (side < 0) {
+      ink(ctx, 6.5 * s);
+      ctx.beginPath(); ctx.arc(0, 0, 14 * s, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, 4.5 * s, 0, 7); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(0, 2 * s, 8 * s, 0, 7); ctx.fill();
+    }
+  },
+  star(ctx, s) {
+    ctx.beginPath(); ctx.arc(0, 0, 12 * s, 0, 7); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.beginPath(); ctx.arc(-4 * s, -4 * s, 4.5 * s, 0, 7); ctx.fill();
+  },
+  wink(ctx, s, side) {
+    if (side < 0) { EYES.dot(ctx, s); }
+    else { EYES.closed(ctx, s); }
+  },
+};
+
+const MOUTHS = {
+  smile(ctx, s) { ink(ctx, 9 * s); ctx.beginPath(); ctx.arc(0, -8 * s, 22 * s, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke(); },
+  bigsmile(ctx, s) {
+    ctx.beginPath();
+    ctx.moveTo(-26 * s, -4 * s);
+    ctx.quadraticCurveTo(0, 40 * s, 26 * s, -4 * s);
+    ctx.closePath();
+    ctx.fill();
+  },
+  o(ctx, s) { ink(ctx, 8 * s); ctx.beginPath(); ctx.ellipse(0, 0, 11 * s, 14 * s, 0, 0, 7); ctx.stroke(); },
+  frown(ctx, s) { ink(ctx, 9 * s); ctx.beginPath(); ctx.arc(0, 16 * s, 22 * s, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke(); },
+  smallfrown(ctx, s) { ink(ctx, 8 * s); ctx.beginPath(); ctx.arc(0, 12 * s, 14 * s, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke(); },
+  wavy(ctx, s) {
+    ink(ctx, 8 * s);
+    ctx.beginPath();
+    ctx.moveTo(-20 * s, 0);
+    ctx.quadraticCurveTo(-10 * s, -9 * s, 0, 0);
+    ctx.quadraticCurveTo(10 * s, 9 * s, 20 * s, 0);
+    ctx.stroke();
+  },
+  flat(ctx, s) { ink(ctx, 9 * s); ctx.beginPath(); ctx.moveTo(-14 * s, 0); ctx.lineTo(14 * s, 0); ctx.stroke(); },
+  grit(ctx, s) {
+    ink(ctx, 8 * s);
+    ctx.beginPath(); ctx.arc(0, 30 * s, 40 * s, Math.PI * 1.17, Math.PI * 1.83); ctx.stroke();
+    // teeth ticks crossing the frown arc
+    for (const [dx, dy] of [[-18, 0], [0, -9], [18, 0]]) {
+      ctx.beginPath();
+      ctx.moveTo(dx * s, (dy - 10) * s);
+      ctx.lineTo(dx * s, (dy + 10) * s);
+      ctx.stroke();
+    }
+  },
+  tongue(ctx, s) {
+    ink(ctx, 9 * s);
+    ctx.beginPath(); ctx.arc(0, -8 * s, 20 * s, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
+    ctx.fillStyle = "#F08CA8";
+    ctx.beginPath(); ctx.ellipse(8 * s, 12 * s, 9 * s, 12 * s, -0.3, 0, 7); ctx.fill();
+  },
+  none() {},
+};
+
+/* extras draw in blob coordinates (origin = blob center, unit = R)         */
+const EXTRAS = {
+  tear(ctx, R, s) {
+    ctx.fillStyle = "#BFE0F8";
+    drop(ctx, -R * 0.38, -R * 0.02, 16 * s);
+  },
+  tears(ctx, R, s) {
+    // stream flowing from the right eye, curving out over the cheek
+    ctx.fillStyle = "rgba(208,233,252,0.88)";
+    ctx.beginPath();
+    ctx.moveTo(R * 0.31, -R * 0.1);
+    ctx.quadraticCurveTo(R * 0.36, R * 0.45, R * 0.46, R * 0.92);
+    ctx.quadraticCurveTo(R * 0.55, R * 0.94, R * 0.6, R * 0.82);
+    ctx.quadraticCurveTo(R * 0.55, R * 0.35, R * 0.49, -R * 0.08);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#BFE0F8";
+    drop(ctx, R * 0.55, R * 0.95, 13 * s);
+    drop(ctx, -R * 0.38, R * 0.02, 15 * s);
+  },
+  sweat(ctx, R, s) {
+    ctx.fillStyle = "#A9CFF2";
+    drop(ctx, R * 0.72, -R * 0.55, 15 * s);
+    drop(ctx, R * 0.92, -R * 0.2, 11 * s);
+  },
+  drool(ctx, R, s) {
+    ctx.fillStyle = "#BFE0F8";
+    drop(ctx, R * 0.16, R * 0.52, 17 * s);
+  },
+  vein(ctx, R, s) {
+    ctx.strokeStyle = "#B23A18";
+    ctx.lineWidth = 8 * s;
+    ctx.lineCap = "round";
+    ctx.save();
+    ctx.translate(R * 0.68, -R * 0.66);
+    ctx.rotate(0.4);
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(10 * s, 0);
+      ctx.lineTo(24 * s, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+  },
+  stress(ctx, R, s) {
+    ctx.strokeStyle = "#7B6BA8";
+    ctx.lineWidth = 8 * s;
+    ctx.lineCap = "round";
+    for (let i = 0; i < 3; i++) {
+      const x = R * 0.62 + i * 20 * s;
+      ctx.beginPath();
+      ctx.moveTo(x, -R * 0.82 + i * 6 * s);
+      ctx.lineTo(x, -R * 0.58 + i * 6 * s);
+      ctx.stroke();
+    }
+  },
+  zzz(ctx, R, s) {
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 7 * s;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    let size = 22 * s;
+    let x = R * 0.7, y = -R * 0.75;
+    for (let i = 0; i < 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + size, y);
+      ctx.lineTo(x, y + size);
+      ctx.lineTo(x + size, y + size);
+      ctx.stroke();
+      x += size * 1.6; y -= size * 1.3; size *= 0.7;
+    }
+  },
+  sparkle(ctx, R, s) {
+    ctx.strokeStyle = "#F6E7A0";
+    ctx.lineWidth = 8 * s;
+    ctx.lineCap = "round";
+    for (const [px, py, k] of [[-R * 0.85, -R * 0.6, 1], [R * 0.88, -R * 0.75, 0.7]]) {
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(px + Math.cos(a) * 7 * s * k, py + Math.sin(a) * 7 * s * k);
+        ctx.lineTo(px + Math.cos(a) * 18 * s * k, py + Math.sin(a) * 18 * s * k);
+        ctx.stroke();
+      }
+    }
+  },
+  hearts(ctx, R, s) {
+    ctx.fillStyle = "#EE7791";
+    for (const [px, py, k] of [[R * 0.82, -R * 0.62, 1], [-R * 0.9, -R * 0.4, 0.65]]) {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.scale(k * s, k * s);
+      ctx.beginPath();
+      ctx.moveTo(0, 6);
+      ctx.bezierCurveTo(-14, -6, -7, -16, 0, -8);
+      ctx.bezierCurveTo(7, -16, 14, -6, 0, 6);
+      ctx.fill();
+      ctx.restore();
+    }
+  },
+  mask(ctx, R, s) {
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = 5 * s;
+    ctx.beginPath(); ctx.moveTo(-R * 0.52, R * 0.1); ctx.lineTo(-R * 0.92, -R * 0.08); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(R * 0.52, R * 0.1); ctx.lineTo(R * 0.92, -R * 0.08); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.94)";
+    ctx.beginPath();
+    ctx.moveTo(-R * 0.52, R * 0.02);
+    ctx.quadraticCurveTo(0, -R * 0.12, R * 0.52, R * 0.02);
+    ctx.quadraticCurveTo(R * 0.5, R * 0.52, 0, R * 0.56);
+    ctx.quadraticCurveTo(-R * 0.5, R * 0.52, -R * 0.52, R * 0.02);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(190,180,165,0.6)";
+    ctx.lineWidth = 4 * s;
+    for (const dy of [0.14, 0.26, 0.38]) {
+      ctx.beginPath();
+      ctx.moveTo(-R * 0.4, R * dy);
+      ctx.quadraticCurveTo(0, R * (dy - 0.09), R * 0.4, R * dy);
+      ctx.stroke();
+    }
+  },
+};
+
+function drop(ctx, x, y, r) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - r * 1.3);
+  ctx.bezierCurveTo(x + r, y - r * 0.2, x + r, y + r * 0.6, x, y + r * 0.8);
+  ctx.bezierCurveTo(x - r, y + r * 0.6, x - r, y - r * 0.2, x, y - r * 1.3);
+  ctx.fill();
+}
+
+/* --------------------------------------------------------- assemble ------ */
+
+function buildFeatures(spec, rng, R) {
+  const s = (R / 300) * 1.35; // chunky ink reads better at sticker size
+  const feats = [];
+  const eyeY = -R * 0.12 + (rng() - 0.5) * 10;
+  const eyeDX = R * 0.4;
+  const mouthY = R * 0.28;
+  const heartLift = spec.shape === "heart" ? -R * 0.1 : 0;
+
+  if (spec.blush) {
+    const big = spec.blush === "big";
+    feats.push({
+      x: 0, y: 0,
+      draw(ctx) {
+        for (const d of [-1, 1]) {
+          const rg = ctx.createRadialGradient(d * R * 0.62, R * 0.12 + heartLift, 0, d * R * 0.62, R * 0.12 + heartLift, (big ? 62 : 46) * s);
+          rg.addColorStop(0, big ? "rgba(244,120,150,0.65)" : "rgba(242,130,150,0.5)");
+          rg.addColorStop(1, "rgba(244,120,150,0)");
+          ctx.fillStyle = rg;
+          ctx.beginPath();
+          ctx.ellipse(d * R * 0.62, R * 0.12 + heartLift, (big ? 66 : 50) * s, (big ? 44 : 33) * s, 0, 0, 7);
+          ctx.fill();
+        }
+      },
+    });
+  }
+
+  const eyeFn = EYES[spec.eyes] || EYES.dot;
+  for (const d of [-1, 1]) {
+    feats.push({ x: d * eyeDX, y: eyeY + heartLift, draw(ctx) { ink(ctx, 9 * s); eyeFn(ctx, s, d); } });
+  }
+
+  if (spec.brows) {
+    feats.push({
+      x: 0, y: eyeY + heartLift - 38 * s,
+      draw(ctx) {
+        ink(ctx, 7 * s);
+        for (const d of [-1, 1]) {
+          ctx.beginPath();
+          if (spec.brows === "up") {
+            ctx.arc(d * eyeDX, 10 * s, 14 * s, Math.PI * 1.2, Math.PI * 1.8);
+          } else { // sad
+            ctx.moveTo(d * (eyeDX - 14 * s), 4 * s);
+            ctx.lineTo(d * (eyeDX + 12 * s), 14 * s);
+          }
+          ctx.stroke();
+        }
+      },
+    });
+  }
+
+  const mouthFn = MOUTHS[spec.mouth] || MOUTHS.smile;
+  feats.push({ x: (rng() - 0.5) * 8, y: mouthY + heartLift, draw(ctx) { ink(ctx, 9 * s); mouthFn(ctx, s); } });
+
+  for (const ex of spec.extras || []) {
+    const fn = EXTRAS[ex];
+    if (fn) feats.push({ x: 0, y: heartLift * 0.4, draw(ctx) { fn(ctx, R, s); } });
+  }
+  return feats;
+}
+
+/* --------------------------------------------------------- rendering ----- */
+
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+function renderSticker(canvas, spec, seed, progress = 1) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width;
+  ctx.clearRect(0, 0, W, W);
+  const R = W * 0.29;
+  const cx = W / 2, cy = W / 2 + W * 0.015;
+
+  // body prerendered once per (spec, seed)
+  const key = seed + "|" + JSON.stringify(spec);
+  if (!renderSticker.cache || renderSticker.cacheKey !== key || renderSticker.cacheW !== W) {
+    const body = document.createElement("canvas");
+    body.width = body.height = W;
+    const bctx = body.getContext("2d");
+    bctx.translate(cx, cy);
+    paintBody(bctx, spec, mulberry32(seed), R);
+    renderSticker.cache = body;
+    renderSticker.cacheKey = key;
+    renderSticker.cacheW = W;
+    renderSticker.cacheFeats = buildFeatures(spec, mulberry32(seed ^ 0x9e3779b9), R);
+  }
+
+  // stage 1: body soaks in (0 -> .45)
+  const bodyP = Math.min(1, progress / 0.45);
+  ctx.save();
+  ctx.globalAlpha = easeOut(bodyP);
+  const sc = 0.92 + 0.08 * easeOut(bodyP);
+  ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+  ctx.drawImage(renderSticker.cache, 0, 0);
+  ctx.restore();
+
+  // stage 2: features pop in sequentially (.4 -> 1)
+  const feats = renderSticker.cacheFeats;
+  const span = 0.6 / Math.max(feats.length, 1);
+  feats.forEach((f, i) => {
+    const t0 = 0.4 + i * span * 0.85;
+    const p = Math.max(0, Math.min(1, (progress - t0) / (span * 1.4)));
+    if (p <= 0) return;
+    const e = easeOut(p);
+    ctx.save();
+    ctx.globalAlpha = e;
+    ctx.translate(cx + f.x, cy + f.y);
+    ctx.scale(0.5 + 0.5 * e, 0.5 + 0.5 * e);
+    f.draw(ctx);
+    ctx.restore();
+  });
+}
+
+/* ------------------------------------------------------------- app ------- */
+
+const canvas = document.getElementById("sticker");
+const input = document.getElementById("emotion");
+const caption = document.getElementById("caption");
+const shelfEl = document.getElementById("shelf");
+
+let current = null;   // { text, seed, spec }
+let animId = 0;
+
+function generate(text, seed, { pushShelf = true } = {}) {
+  text = (text || "").trim();
+  if (!text) return;
+  const spec = interpret(text);
+  current = { text, seed, spec };
+  caption.textContent = spec.label;
+  location.hash = encodeURIComponent(text) + ":" + seed;
+
+  canvas.classList.remove("pop");
+  void canvas.offsetWidth;
+  canvas.classList.add("pop");
+
+  const myId = ++animId;
+  const t0 = performance.now();
+  const DUR = 900;
+  (function frame(now) {
+    if (myId !== animId) return;
+    const p = Math.min(1, (now - t0) / DUR);
+    renderSticker(canvas, spec, seed, p);
+    if (p < 1) requestAnimationFrame(frame);
+  })(t0);
+
+  if (pushShelf) addToShelf(text, seed, spec);
+}
+
+/* shelf: params only, minis re-rendered */
+function loadShelf() {
+  try { return JSON.parse(localStorage.getItem("stickerShelf") || "[]"); }
+  catch { return []; }
+}
+function addToShelf(text, seed, spec) {
+  let shelf = loadShelf().filter((e) => !(e.text === text && e.seed === seed));
+  shelf.unshift({ text, seed });
+  shelf = shelf.slice(0, 12);
+  localStorage.setItem("stickerShelf", JSON.stringify(shelf));
+  drawShelf();
+}
+function drawShelf() {
+  shelfEl.innerHTML = "";
+  for (const e of loadShelf()) {
+    const mini = document.createElement("canvas");
+    mini.width = mini.height = 256;
+    mini.title = e.text;
+    const spec = interpret(e.text);
+    // mini uses its own render pass (shared cache would thrash; cheap enough)
+    const mctx = mini.getContext("2d");
+    mctx.save();
+    const R = 256 * 0.3;
+    mctx.translate(128, 130);
+    paintBody(mctx, spec, mulberry32(e.seed), R);
+    for (const f of buildFeatures(spec, mulberry32(e.seed ^ 0x9e3779b9), R)) {
+      mctx.save(); mctx.translate(f.x, f.y); f.draw(mctx); mctx.restore();
+    }
+    mctx.restore();
+    mini.addEventListener("click", () => {
+      input.value = e.text;
+      generate(e.text, e.seed, { pushShelf: false });
+    });
+    shelfEl.appendChild(mini);
+  }
+}
+
+/* controls */
+document.getElementById("go").addEventListener("click", () =>
+  generate(input.value, (Math.random() * 1e9) | 0));
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") generate(input.value, (Math.random() * 1e9) | 0);
+});
+document.getElementById("remix").addEventListener("click", () => {
+  if (current) generate(current.text, (Math.random() * 1e9) | 0);
+});
+document.getElementById("save").addEventListener("click", () => {
+  if (!current) return;
+  // clean 512px export, transparent background
+  const out = document.createElement("canvas");
+  out.width = out.height = 512;
+  const octx = out.getContext("2d");
+  const R = 512 * 0.29;
+  octx.translate(256, 260);
+  paintBody(octx, current.spec, mulberry32(current.seed), R);
+  for (const f of buildFeatures(current.spec, mulberry32(current.seed ^ 0x9e3779b9), R)) {
+    octx.save(); octx.translate(f.x, f.y); f.draw(octx); octx.restore();
+  }
+  out.toBlob((blob) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = current.text.replace(/[^a-z0-9]+/gi, "-") + ".png";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+});
+
+/* suggestion chips */
+const CHIP_WORDS = ["happy", "in love", "laughing", "calm", "sad", "crying", "angry",
+  "anxious but excited", "sleepy", "stressed", "embarrassed", "sick", "tired", "surprised"];
+const chipsEl = document.getElementById("chips");
+for (const w of CHIP_WORDS) {
+  const c = document.createElement("span");
+  c.className = "chip";
+  c.textContent = w;
+  c.addEventListener("click", () => {
+    input.value = w;
+    generate(w, (Math.random() * 1e9) | 0);
+  });
+  chipsEl.appendChild(c);
+}
+
+/* boot: restore from URL hash, else a friendly default */
+drawShelf();
+(function boot() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  const m = h.match(/^(.*):(\d+)$/);
+  if (m) {
+    input.value = m[1];
+    generate(m[1], +m[2], { pushShelf: false });
+  } else {
+    generate("happy", 42, { pushShelf: false });
+  }
+})();
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ This scope executes the phased plan from `threejs-critical-breakdown.md` §5 **a
 | Stack | three.js (exact version pinned, lockfile committed) + vite; plain JS + GLSL; no other runtime dependencies |
 | Delivery target | `vite build` + single-file plugin → one distributable HTML page; dev via vite server |
 | Baseline | v2 prototype (`particle-menagerie.html`) stays untouched as the comparison artifact |
+| UI direction | **1d "Bathyscaphe"** per `design/bathyscaphe/README.md` (user-confirmed 2026-07-28) — latest revision: no dial cluster in selected state; weather rotary at rest only. The handoff spec is the fidelity contract for Phase D. |
 
 ---
 

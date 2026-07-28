@@ -13,12 +13,25 @@ An interactive browser "board": the user types the name of a sea creature or flo
 - `threejs-approach.md` — the architecture for v3 (the three.js rebuild).
 - `threejs-critical-breakdown.md` — **the most important doc.** Full control catalog, honest analysis of the realistic-lighting ceiling, risk register (10 risks incl. self-critique), alternatives considered, and the phased plan with gates.
 
+## Superseded requirements (formal rescoping, 2026-07-28)
+
+The PRD is the historical record, not the current spec. These PRD requirements are formally dead:
+
+1. **"No color — monochrome is the identity"** → monochrome-**by-default** with a color control (shipped in v2, kept in v3).
+2. **All animals / 8 PRD archetypes** → ocean creatures + sea-flora only; the codebase's 9 archetypes (eel, medusa, fish, ray, octo, star, amorph, bloom, kelp) are the taxonomy of record.
+3. **"Single self-contained HTML file" as a dev constraint** → npm/vite dev; the *built* artifact is still a single offline-capable HTML file (vite single-file plugin).
+4. **Canvas2D fallback** → dropped. WebGL-less browsers get a "WebGL required" message; v2 stays in-repo as the emergency demo.
+5. **PRD §8 success metrics** → replaced by `project-scope.md` §5 (the amended gates).
+
+Authority order when docs conflict: `specs/*` > `project-scope.md` > `technical-assessment.md` > `risk-spike-report.md` > `threejs-critical-breakdown.md` > `threejs-approach.md` > PRD.
+
 ## Decisions already made with the user (do not relitigate silently)
 
 1. Scope: ocean creatures + flowers-as-sea-flora on ONE shared canvas (an abyssal aquarium). Land animals were cut because legs/gravity break the particle illusion.
 2. Generation is procedural/deterministic (name → hash → archetype → params). No AI/image-gen in the generation path — the user asked, and it was ruled out because it kills interactivity.
 3. v2 was judged "not impressive" by the user. Verdict accepted: flat 2D + square dots is the ceiling of Canvas2D. The agreed fix is the three.js rebuild (v3) per `threejs-approach.md`.
 4. The user explicitly wants three.js, more controls (see catalog in the breakdown doc), and more realistic lighting. Expectation set: "physically plausible light in a stylized medium" (per-dot normal shading, tonemapping, DOF, fog, bloom) — NOT photoreal creatures.
+5. UI direction: **1d "Bathyscaphe"** (warm analog dive console) per `design/bathyscaphe/README.md`, user-confirmed 2026-07-28. Latest revision applies: no dial cluster in the selected state; weather rotary at rest only. The handoff spec is the Phase D fidelity contract.
 
 ## Current state / next step
 

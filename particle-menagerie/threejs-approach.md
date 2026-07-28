@@ -1,5 +1,7 @@
 # Technical Approach — Particle Menagerie on three.js
 
+> **⚠️ PARTIALLY SUPERSEDED (2026-07-28).** This doc predates the risk review. Two sections are overridden: **§3 trails** (the fade quad is forbidden — trails accumulate in a HalfFloat linear ping-pong target per `specs/frame-graph.md`) and **§8 delivery** (cdnjs/r128 is dead — pinned modern three via npm/vite per `project-scope.md`). §7's budget numbers are stale (see `risk-spike-report.md` H2/M6); the frame/normal math in §5 is amended by `specs/geometry-spec.md`. Where docs conflict: specs > scope > assessment > this doc.
+
 **Goal:** the fidelity of the reference video (ribbed 3D forms coiling in the dark, glowing dots, real depth) while keeping everything that makes this a board: type-to-summon, live controls, cursor interaction.
 
 ---
@@ -28,7 +30,7 @@ At ~1,500 dots per creature × 16 creatures, the CPU does ~24k target evaluation
 - One `THREE.Scene`, near-black clear color, `PerspectiveCamera` placed so that the z=0 plane maps 1:1 to screen pixels (world units = pixels; no coordinate translation bugs).
 - **Each creature = one `THREE.Points` object** with a `BufferGeometry` holding three attributes: `position` (updated every frame, `DynamicDrawUsage`), `aSize` (static per-dot size variance), `aTw` (static twinkle phase). One draw call per creature.
 - **One `ShaderMaterial` per creature** with uniforms: `uColor` (the color control), `uAlpha` (glow control × formation fade), `uTime`. Changing a control writes a uniform — no geometry rebuild.
-- **Trails** via a full-screen fade quad: `autoClear` off, each frame a translucent dark quad renders first (renderOrder −10), then all points additively on top. The trails slider maps to the quad's opacity — from crisp dots to long comet exposure.
+- ~~**Trails** via a full-screen fade quad~~ **[SUPERSEDED — see `specs/frame-graph.md`]:** trails accumulate in a HalfFloat linear ping-pong render target with energy normalization; the fade-quad-to-screen trick is incompatible with the tonemapped HDR chain. The trails slider maps to the decay constant (frame-rate-independent).
 - **Ambient plankton** = one more Points object, 400 dots, drifting with the current.
 
 ## 4. The dot shader (the glow)
@@ -76,11 +78,11 @@ Archetype math upgrades from 2D curves to 3D frames. The eel — the reference s
 
 Target: 60fps with 16 creatures on integrated graphics. Fallback knob: global dot-density multiplier (0.5×) if `requestAnimationFrame` deltas degrade — auto-detected, not user-facing.
 
-## 8. Dependency & delivery
+## 8. Dependency & delivery **[SUPERSEDED — see `project-scope.md`]**
 
-- Single self-contained HTML file, three.js r128 from **cdnjs** (the one CDN allowed in claude.ai previews; global `THREE`, no build step). No other dependencies; shaders are inline strings.
-- Everything else (lexicon, resolve, panel UI, URL-hash persistence) carries over from v2 nearly verbatim.
-- Risk: if the file is opened fully offline, the CDN import fails — acceptable for a prototype; a later step can inline three.js or ship via a bundler.
+- ~~Single self-contained HTML file, three.js r128 from cdnjs~~ → pinned modern three.js via npm + vite (exact version, committed lockfile); dev via vite server, ship via `vite build` + single-file plugin so the built page still opens from a double-click offline.
+- Everything else (lexicon, resolve, panel UI, URL-hash persistence) carries over from v2 nearly verbatim — still true. UI chrome now follows the Bathyscaphe handoff (`design/bathyscaphe/README.md`).
+- Tests run against built output via `vite preview`, not the dev server.
 
 ## 9. Build order
 

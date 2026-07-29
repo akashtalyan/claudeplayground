@@ -1031,7 +1031,11 @@ function boot() {
     if (atmosphere) atmosphere.resize(w, h);
     globalUniforms.uDpr.value = renderer.getPixelRatio();
     applyGovSprite(); // governor sprite cap is in device px — track uDpr
-    globalUniforms.uFogScale.value = 540 / h; // presets viewport-invariant (tuned at 540)
+    // Fog is relative to the z=0 creature plane (uFogRef = camDist): the plane
+    // is unfogged and relative depth is viewport-invariant by construction, so
+    // the old 540/h normalization is retired (uFogScale stays 1).
+    globalUniforms.uFogScale.value = 1.0;
+    globalUniforms.uFogRef.value = camDist;
   }
   window.addEventListener('resize', onResize);
   onResize();

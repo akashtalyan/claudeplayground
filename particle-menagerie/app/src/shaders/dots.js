@@ -20,6 +20,7 @@ uniform vec3 uLightColor;
 uniform float uRim;
 uniform float uFogDensity;
 uniform float uFogScale;
+uniform float uFogRef;
 uniform vec3 uFogTint;
 uniform float uGain;
 uniform float uFocusZ;
@@ -124,9 +125,15 @@ void main() {
 
 	// Exponential fog is part of the emitted light, applied pre-accumulation so
 	// it lands in the trail history (frame-graph rule 9 / spec section 9).
+	// Fog measures depth INTO the scene relative to the creature plane
+	// (uFogRef = camera distance to z=0): the plane itself is unfogged — the
+	// regime every preset was tuned in — and distance swallows light behind it.
+	// Relative depth is also viewport-invariant (uFogScale stays as a spare
+	// normalizer, 1.0 in production).
 	// uFogTint absorbs per channel (watery weather); uGain is the weather
 	// presets' pre-accumulation exposure. Both default to identity.
-	vColor = lit * exp( -uFogDensity * uFogScale * viewDist * uFogTint ) * uGain;
+	float fogDepth = max( viewDist - uFogRef, 0.0 );
+	vColor = lit * exp( -uFogDensity * uFogScale * fogDepth * uFogTint ) * uGain;
 
 	gl_Position = projectionMatrix * mv;
 }
@@ -189,6 +196,8 @@ export function createGlobalUniforms( renderer ) {
 		// with camDist (which scales with viewport height), so without this the
 		// same preset over-fogs on taller screens.
 		uFogScale: { value: 1.0 },
+		// Camera distance to the z=0 creature plane (set on resize) — fog zero-point.
+		uFogRef: { value: 518.0 },
 		uFogTint: { value: new THREE.Vector3( 1, 1, 1 ) },
 		uGain: { value: 1.0 },
 		uFocusZ: { value: 12.0 },
@@ -219,6 +228,7 @@ export function createDotMaterial( globalUniforms ) {
 			uRim: globalUniforms.uRim,
 			uFogDensity: globalUniforms.uFogDensity,
 			uFogScale: globalUniforms.uFogScale,
+			uFogRef: globalUniforms.uFogRef,
 			uFogTint: globalUniforms.uFogTint,
 			uGain: globalUniforms.uGain,
 			uFocusZ: globalUniforms.uFocusZ,

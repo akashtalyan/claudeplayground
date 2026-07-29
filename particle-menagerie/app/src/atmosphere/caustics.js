@@ -28,6 +28,7 @@ uniform vec3 uLightColor;
 uniform float uIntensity;
 uniform float uFogDensity;
 uniform float uFogScale;
+uniform float uFogRef;
 uniform vec3 uFogTint;
 uniform float uGain;
 
@@ -77,7 +78,7 @@ void main() {
 	// (fp16-decay guard crushing blue first). Near-neutral color keeps the
 	// channels crossing that zone together, so the fade stays neutral;
 	// scattered shaft light reading desaturated is also physically right.
-	vec3 fog = exp( -uFogDensity * uFogScale * viewDist * uFogTint );
+	vec3 fog = exp( -uFogDensity * uFogScale * max( viewDist - uFogRef, 0.0 ) * uFogTint );
 	const vec3 LUMA = vec3( 0.2126, 0.7152, 0.0722 );
 	float fogL = dot( fog, LUMA );
 	vec3 lc = mix( vec3( dot( uLightColor, LUMA ) ), uLightColor, 0.35 );
@@ -222,6 +223,7 @@ export function create( scene, globalUniforms, opts = {} ) {
 			uLightColor: globalUniforms.uLightColor,
 			uFogDensity: globalUniforms.uFogDensity,
 			uFogScale: globalUniforms.uFogScale,
+			uFogRef: globalUniforms.uFogRef,
 			uFogTint: globalUniforms.uFogTint,
 			uGain: globalUniforms.uGain,
 		},

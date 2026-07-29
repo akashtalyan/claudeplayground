@@ -11,9 +11,13 @@
 //   ghost,    // boolean — translucent
 //   hue,      // 0..360 or null (monochrome default)
 //   count,    // 1..6 — "school of fish" → 5, "three eels" → 3
+//   morph,    // fish-species morph preset (FISH_MORPHS entry) or null —
+//             // pass as opts.morph to the fish maker; plain "fish"/"school
+//             // of fish" stays null so schools keep seed-varied bodies
 // }
 
 import { hashName } from './geometry/rng.js';
+import { FISH_MORPHS } from './geometry/fish.js';
 
 // ---- archetype lexicon (~150 entries) ------------------------------------
 export const LEX = {
@@ -138,6 +142,7 @@ export function resolveName(raw) {
   let hue = null;
   let hueSet = false;
   let count = 1;
+  let morph = null;
   const kept = [];
   for (const w of words) {
     if (w === 'of' || w === 'a' || w === 'the') continue;
@@ -162,11 +167,21 @@ export function resolveName(raw) {
     for (const a of ARCH_NAMES) {
       if (LEX[a].includes(w) || LEX[a].includes(ws)) arch = a;
     }
+    // named fish species → characteristic morph preset (eel-likes are in
+    // LEX.eel and never reach here as fish, so they keep the eel archetype)
+    const sp = FISH_MORPHS[w] || FISH_MORPHS[ws];
+    if (sp && !morph) {
+      morph = sp;
+      if (sp.scale) scale *= sp.scale; // shark/marlin larger, minnow tiny...
+    }
   }
   const clean = kept.join(' ') || name;
   const seed = hashName(clean);
   if (!arch) arch = SWIMMERS[seed % SWIMMERS.length];
-  return { name: clean, arch, seed, scale, tempo, speed, ghost, hue: hueSet ? hue : null, count };
+  return {
+    name: clean, arch, seed, scale, tempo, speed, ghost,
+    hue: hueSet ? hue : null, count, morph,
+  };
 }
 
 // Board csv ("eel, red jellyfish,school of fish") → array of resolved specs.

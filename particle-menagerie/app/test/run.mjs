@@ -76,7 +76,7 @@ async function main() {
 
     const browser = await launchChromium();
     try {
-      const ctx = await browser.newContext({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 1 });
+      const ctx = await browser.newContext({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 1, acceptDownloads: true });
       const page = await ctx.newPage();
       // 2. any pageerror / console.error anywhere in the run = hard fail
       page.on('pageerror', (e) => report.pageErrors.push({ scenario: currentScenario, message: String(e) }));
@@ -124,18 +124,26 @@ async function main() {
             let x = 0, y = 0, w = img.width, h = img.height;
             if (reg === 'central') {
               x = w >> 2; y = h >> 2; w >>= 1; h >>= 1; // central 50% box
+            } else if (reg === 'top') {
+              h = (h / 3) | 0; // upper third (caustic shafts live here)
+            } else if (reg === 'bottom') {
+              const t = (h / 3) | 0; y = h - t; h = t; // lower third (sediment)
             }
             const d = g.getImageData(x, y, w, h).data;
             let blown = 0;
             let maxChannel = 0;
+            let lumaSum = 0;
+            let lit = 0;
             for (let i = 0; i < d.length; i += 4) {
               const r = d[i], gg = d[i + 1], b = d[i + 2];
               if (r >= 250 && gg >= 250 && b >= 250) blown++;
               const m = r > gg ? (r > b ? r : b) : (gg > b ? gg : b);
               if (m > maxChannel) maxChannel = m;
+              lumaSum += (r + gg + b) / 3;
+              if (m > 25) lit++; // pixels clearly above the night-water floor
             }
             const pixels = d.length / 4;
-            return { width: img.width, height: img.height, regionPixels: pixels, blownFrac: blown / pixels, maxChannel };
+            return { width: img.width, height: img.height, regionPixels: pixels, blownFrac: blown / pixels, maxChannel, meanLuma: lumaSum / pixels, litCount: lit };
           },
           [buf.toString('base64'), region ?? 'full'],
         );
@@ -465,12 +473,194 @@ async function main() {
         }
       });
 
+      // ---- 12. Phase E atmosphere: shafts + sediment, per preset ----------
+      // Pretty shots with the full board first, then a creature-free
+      // measurement phase (moving creatures/plankton would corrupt the
+      // on/off pixel diffs).
+      await scenario('atmosphere', async (s) => {
+        await load(`fixedstep=1&board=${encodeURIComponent('kelp,jellyfish,eel')}`);
+        await page.waitForFunction(
+          () => window.__menagerie.ui && typeof window.__menagerie.ui.forceAmbient === 'function',
+        );
+        await page.evaluate(() => window.__menagerie.ui.forceAmbient(true)); // chrome-free canvas
+        await page.waitForTimeout(1700);
+        await step(300); // formations + moonlit trails settle
+        await shot('atm-moonlit.png');
+        const snapPreset = (n) =>
+          page.evaluate((p) => window.__menagerie.controls.setPreset(p, { snap: true }), n);
+        await snapPreset('shallows');
+        await step(200);
+        await shot('atm-shallows.png');
+        await snapPreset('abyss');
+        await step(260); // abyss trails are long (k 0.06) — let them settle
+        await shot('atm-abyss.png');
+
+        // -- measurement phase: empty water, plankton off. setPreset re-applies
+        // the preset's planktonAlpha, so plankton is re-zeroed after every snap.
+        await page.evaluate(() => window.__menagerie.test.releaseAll());
+        const measPreset = async (n) => {
+          await snapPreset(n);
+          await page.evaluate(() => window.__menagerie.test.setPlankton(0));
+        };
+        // caustics present in shallows: upper-third light on vs off
+        await measPreset('shallows');
+        await step(150);
+        const shalOn = await pngStats(await shot('atm-meas-shallows-on.png'), 'top');
+        await page.evaluate(() => window.__menagerie.atmosphere.caustics.setIntensity(0));
+        await step(120); // trails flush the shaft light
+        const shalOff = await pngStats(await shot('atm-meas-shallows-off.png'), 'top');
+        s.causticsTopDelta = shalOn.meanLuma - shalOff.meanLuma;
+        if (!(s.causticsTopDelta > 0.5)) {
+          throw new Error(`caustics not visible in shallows: top meanLuma ${shalOn.meanLuma.toFixed(2)} -> ${shalOff.meanLuma.toFixed(2)}`);
+        }
+        // sediment present in abyss: lower-third lit pixels on vs off
+        await measPreset('abyss');
+        await step(260);
+        const abysOn = await pngStats(await shot('atm-meas-abyss-on.png'), 'bottom');
+        await page.evaluate(() => window.__menagerie.atmosphere.sediment.setIntensity(0));
+        await step(240);
+        const abysOff = await pngStats(await shot('atm-meas-abyss-off.png'), 'bottom');
+        s.sedimentLitDelta = abysOn.litCount - abysOff.litCount;
+        if (!(s.sedimentLitDelta > 50)) {
+          throw new Error(`sediment not visible in abyss: bottom lit ${abysOn.litCount} -> ${abysOff.litCount}`);
+        }
+        // ink: atmosphere must be absent — extinguishing it changes nothing
+        await measPreset('ink');
+        await step(120);
+        const inkVals = await page.evaluate(() => window.__menagerie.controls.sceneValues());
+        s.ink = { caustics: inkVals.caustics, sediment: inkVals.sediment };
+        if (inkVals.caustics > 0.01) throw new Error(`ink still has caustics: ${inkVals.caustics}`);
+        const inkOnTop = await pngStats(await shot('atm-meas-ink.png'), 'top');
+        const inkOnBot = await pngStats(await shot('atm-meas-ink2.png'), 'bottom');
+        await page.evaluate(() => window.__menagerie.atmosphere.setIntensity(0));
+        await step(120);
+        const inkOffBuf = await shot('atm-meas-ink-off.png');
+        const inkOffTop = await pngStats(inkOffBuf, 'top');
+        const inkOffBot = await pngStats(inkOffBuf, 'bottom');
+        s.inkTopDelta = inkOnTop.meanLuma - inkOffTop.meanLuma;
+        s.inkBotLitDelta = inkOnBot.litCount - inkOffBot.litCount;
+        if (Math.abs(s.inkTopDelta) > 0.3 || Math.abs(s.inkBotLitDelta) > 40) {
+          throw new Error(`ink is not atmosphere-free: topDelta ${s.inkTopDelta.toFixed(2)}, bottomLitDelta ${s.inkBotLitDelta}`);
+        }
+      });
+
+      // ---- 13. Phase E feeding: a dropped mote pulls the swimmer in -------
+      await scenario('feeding', async (s) => {
+        await load('fixedstep=1&board=fish');
+        await step(280); // formation completes, fish roams
+        const drop = await page.evaluate(() => {
+          const m = window.__menagerie;
+          const a = m.controls.screenAnchor('c1');
+          const x = Math.min(Math.max(a.x + 90, 80), innerWidth - 80);
+          const y = Math.min(Math.max(a.y - 60, 80), innerHeight - 140);
+          m.feeding.drop(x, y);
+          return { p: m.test.creaturePos('c1'), mote: m.feeding.getMote() };
+        });
+        const d0 = Math.hypot(drop.p.x - drop.mote.x, drop.p.y - drop.mote.y, drop.p.z - drop.mote.z);
+        s.distStart = d0;
+        let eaten = false;
+        let dMin = d0;
+        for (let i = 0; i < 12; i++) {
+          await step(30); // 0.5 s sim-time per check
+          if (i === 1) await shot('feeding.png'); // mid-race
+          const r = await page.evaluate(() => {
+            const m = window.__menagerie;
+            return { p: m.test.creaturePos('c1'), mote: m.feeding.getMote() };
+          });
+          if (!r.mote || r.mote.phase !== 'sink') {
+            eaten = true; // consumed (burst) — the strongest convergence proof
+            break;
+          }
+          dMin = Math.min(dMin, Math.hypot(r.p.x - r.mote.x, r.p.y - r.mote.y, r.p.z - r.mote.z));
+        }
+        s.eaten = eaten;
+        s.distMin = dMin;
+        if (!eaten && !(dMin < d0 * 0.55)) {
+          throw new Error(`swimmer did not converge on the mote: ${d0.toFixed(0)} -> min ${dMin.toFixed(0)} world px`);
+        }
+      });
+
+      // ---- 14. Phase E capture: PNG blob + 2 s WebM recording -------------
+      await scenario('capture', async (s) => {
+        await load('fixedstep=1&board=eel');
+        await step(150);
+        const downloads = [];
+        page.on('download', (d) => downloads.push(d));
+        const pngBytes = await page.evaluate(() =>
+          window.__menagerie.capture.snapshotPNG().then((b) => b.size),
+        );
+        s.pngBytes = pngBytes;
+        if (!(pngBytes > 5000)) throw new Error(`snapshotPNG blob too small: ${pngBytes} bytes`);
+        const started = await page.evaluate(() => window.__menagerie.capture.toggleRecording());
+        if (!started) throw new Error('toggleRecording did not start');
+        // ~2 s wall-clock of recording; frames come from the fixed-step clock
+        for (let i = 0; i < 7; i++) {
+          await step(20);
+          await page.waitForTimeout(300);
+        }
+        if (!(await page.evaluate(() => window.__menagerie.capture.isRecording()))) {
+          throw new Error('recording stopped early');
+        }
+        await page.evaluate(() => window.__menagerie.capture.toggleRecording());
+        const t0 = Date.now();
+        let webm = null;
+        while (!webm && Date.now() - t0 < 20000) {
+          webm = downloads.find((d) => d.suggestedFilename().endsWith('.webm'));
+          if (!webm) await page.waitForTimeout(250);
+        }
+        if (!webm) throw new Error('no .webm download arrived after stop');
+        const webmStat = await fs.stat(await webm.path());
+        s.webmBytes = webmStat.size;
+        if (!(webmStat.size > 1000)) throw new Error(`webm too small: ${webmStat.size} bytes`);
+      });
+
+      // ---- 15. Phase E extended soak: 2000 steps at bio-bay (bloom 0.75 +
+      // full atmosphere), then extinguish — trails must still reach the
+      // creature-free baseline within the Phase B bound (+6). Bloom reads the
+      // trail output and never feeds back, and this proves it. --------------
+      await scenario('soakE', async (s) => {
+        const extinguish = () =>
+          page.evaluate(() => {
+            const m = window.__menagerie;
+            m.test.releaseAll();
+            m.controls.setPreset('ink', { snap: true });
+            m.atmosphere.setIntensity(0);
+            m.test.setPlankton(0);
+            m.test.setTrails(0.99);
+          });
+        await load('fixedstep=1&board=eel');
+        await extinguish();
+        await step(300);
+        const baseBuf = await shot('soakE-baseline.png');
+        await load(`fixedstep=1&board=${encodeURIComponent('jellyfish,kelp,eel,fish')}`);
+        await page.evaluate(() =>
+          window.__menagerie.controls.setPreset('bioluminescent bay', { snap: true }),
+        );
+        await step(2000); // ~33 s sim-time under bloom + atmosphere
+        const fullBuf = await shot('soakE-full.png');
+        const full = await pngStats(fullBuf, 'full');
+        s.fullBlownFrac = full.blownFrac;
+        if (full.blownFrac > 0.08) {
+          throw new Error(`bio-bay soak blowout: ${(full.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
+        }
+        await extinguish();
+        await step(300);
+        const stc = await pngStats(await shot('soakE-decayed.png'), 'central');
+        const bsc = await pngStats(baseBuf, 'central');
+        s.maxCentralChannelAfterDecay = stc.maxChannel;
+        s.baselineMaxChannel = bsc.maxChannel;
+        s.bound = 6;
+        if (stc.maxChannel - bsc.maxChannel > 6) {
+          throw new Error(`soakE: central channel ${stc.maxChannel}/255 vs baseline ${bsc.maxChannel}/255 after decay (bound +6)`);
+        }
+      });
+
     } finally {
       await browser.close().catch(() => {});
       await server.close().catch(() => {});
     }
   } else {
-    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls']) {
+    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'feeding', 'capture', 'soakE']) {
       report.scenarios[name] = { pass: false, error: 'skipped: build failed' };
     }
   }

@@ -63,38 +63,52 @@ function clampParam(key, v) {
 // trailsK follows the frame-graph spec: fadeK = pow(1-k, dt*60), so LOW k
 // = long-lived trails and HIGH k = trail-less water (integrator fix — the
 // original preset values had this inverted).
+// Phase E fields — caustics/sediment/ao: 0..1 per-layer atmosphere intensity;
+// bloom: UnrealBloom-style strength on the pipeline composite (frame-graph
+// [4]). All four crossfade with the rest of the scene params in tick().
+// moonlit's bloom must stay equal to the pipeline's default strength so a
+// plain load renders byte-identical to a snapped moonlit preset.
 export const PRESET_ORDER = ['moonlit', 'abyss', 'bioluminescent bay', 'ink', 'shallows'];
 
 export const PRESETS = {
-  // cool silver top-light — the Phase C default water
+  // cool silver top-light — the Phase C default water; soft moon shafts,
+  // a thin marine snow, grounded flora ("moonlit abyssal garden")
   moonlit: {
     lightDir: [-0.45, 0.75, 0.4], lightColor: [0.8, 0.94, 1.05], rim: 1.25,
     fogDensity: 0.0015, fogTint: [1, 1, 1], gain: 1.0, trailsK: 0.25,
     current: 0, turbulence: 1, planktonAlpha: 0.4,
+    caustics: 0.55, sediment: 0.55, ao: 0.7, bloom: 0.35,
   },
-  // near-lightless, heavy red-absorbing fog, long trails
+  // near-lightless, heavy red-absorbing fog, long trails; no shafts reach
+  // this deep — dense silt instead, bloom held low
   abyss: {
     lightDir: [-0.2, 0.95, 0.22], lightColor: [0.3, 0.42, 0.62], rim: 0.65,
     fogDensity: 0.0036, fogTint: [1.7, 1.2, 0.85], gain: 0.7, trailsK: 0.06,
     current: 1.5, turbulence: 0.65, planktonAlpha: 0.12,
+    caustics: 0, sediment: 1, ao: 0.85, bloom: 0.15,
   },
-  // cyan-bright, lively turbulence, thick glowing plankton
+  // cyan-bright, lively turbulence, thick glowing plankton; the glow itself
+  // carries the scene — bloom up, shafts nearly gone
   'bioluminescent bay': {
     lightDir: [-0.5, 0.6, 0.62], lightColor: [0.45, 1.0, 1.1], rim: 1.8,
     fogDensity: 0.001, fogTint: [1.45, 0.85, 0.75], gain: 1.35, trailsK: 0.14,
     current: 7, turbulence: 1.55, planktonAlpha: 0.9,
+    caustics: 0.15, sediment: 0.5, ao: 0.5, bloom: 0.75,
   },
-  // minimal glow, stark rims, no trails, still water
+  // minimal glow, stark rims, no trails, still water — nearly no atmosphere
   ink: {
     lightDir: [-0.05, 0.99, 0.1], lightColor: [0.85, 0.85, 0.85], rim: 2.3,
     fogDensity: 0.0007, fogTint: [1, 1, 1], gain: 0.75, trailsK: 0.95,
     current: 0, turbulence: 0.8, planktonAlpha: 0.04,
+    caustics: 0, sediment: 0.06, ao: 0.15, bloom: 0,
   },
-  // warmer, brighter, light caustic-like flicker via turbulence
+  // warmer, brighter, light caustic-like flicker via turbulence — the shafts
+  // at full strength, only a light dusting of silt
   shallows: {
     lightDir: [0.25, 0.85, 0.3], lightColor: [1.12, 1.02, 0.86], rim: 1.05,
     fogDensity: 0.0011, fogTint: [0.8, 0.95, 1.2], gain: 1.28, trailsK: 0.45,
     current: 4.5, turbulence: 1.4, planktonAlpha: 0.55,
+    caustics: 1, sediment: 0.3, ao: 0.6, bloom: 0.3,
   },
 };
 
@@ -300,6 +314,15 @@ export function createControls(engine) {
     if (engine.plankton) {
       engine.plankton.points.material.uniforms.uAlpha.value = v.planktonAlpha;
     }
+    // Phase E: atmosphere layer intensities + bloom strength ride the same
+    // crossfade (atmosphere is null in the spike scenes, which never preset)
+    if (engine.atmosphere) {
+      const a = engine.atmosphere;
+      if (a.caustics) a.caustics.setIntensity(v.caustics);
+      if (a.sediment) a.sediment.setIntensity(v.sediment);
+      if (a.ao) a.ao.setIntensity(v.ao);
+    }
+    engine.pipeline.setBloom({ strength: v.bloom });
   }
 
   function setPreset(name, opts = {}) {
@@ -424,6 +447,7 @@ export function createControls(engine) {
     // continuous scene params read by the integrator every frame
     state.turbulence = live.turbulence;
     state.planktonRate = 1 + live.current * 0.12;
+    state.current = live.current; // atmosphere (shaft sway, mote drift)
 
     // lateral current: swimmers lean downstream (their steering compensates),
     // drifters wrap around the volume; sleepers and the rooted stay put.

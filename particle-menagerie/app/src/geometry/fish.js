@@ -10,11 +10,44 @@
 // flap-and-feather on a slower cycle; plus (new for 3D) a slow two-sine
 // heading wander the fish banks into.
 
-import { mulberry32 } from './rng.js';
+import { mulberry32, hashName } from './rng.js';
 import { createSpine, makeRingTables, KAPPA_R_MAX, RING_SHRINK, TAU } from './spine.js';
 
 // incommensurate secondary-wave ratio (spec §1 spirit — the motion never repeats)
 const W_RATIO = Math.SQRT2 * 1.618033988749895 * 0.5;
+
+// ---- named-species morph presets -----------------------------------------
+// Axes (all multipliers on the seed-drawn base, 1 = neutral):
+//   elong    body elongation (length vs girth)
+//   depth    body depth ratio (vertical half-height; also flattens width)
+//   fork     caudal shape: <0 rounded, 0 truncate, 1 forked, >1 lunate
+//   dorsal   dorsal fin height
+//   dorsalLen dorsal sail spread along the base (<1 concentrated/triangular)
+//   pect     pectoral fin size (span + chord)
+//   snout    snout profile (<1 blunt, >1 pointed; >2 = bill/rostrum)
+//   tailLen  caudal fin length (+ flex "flow")
+//   scale    world-scale hint — consumed by lexicon.js only, ignored here
+// Exported for lexicon.js (resolve/params path). makeFish also resolves a
+// preset directly from its seed (hashName of the bare species name) so the
+// board path — which passes only the seed — gets species shapes for free.
+export const FISH_MORPHS = {
+  shark: { elong: 1.24, depth: 0.82, fork: 1.15, dorsal: 1.75, dorsalLen: 0.72, pect: 1.25, snout: 1.15, tailLen: 1.0, scale: 1.35 },
+  tuna: { elong: 1.12, depth: 1.0, fork: 1.35, dorsal: 0.85, dorsalLen: 0.9, pect: 0.85, snout: 1.05, tailLen: 0.9, scale: 1.12 },
+  angelfish: { elong: 0.7, depth: 1.5, fork: -0.35, dorsal: 1.85, dorsalLen: 1.25, pect: 0.75, snout: 0.75, tailLen: 0.6, scale: 0.85 },
+  clownfish: { elong: 0.84, depth: 1.15, fork: -0.5, dorsal: 0.8, dorsalLen: 1.0, pect: 1.3, snout: 0.7, tailLen: 0.85, scale: 0.6 },
+  marlin: { elong: 1.3, depth: 0.8, fork: 1.3, dorsal: 1.7, dorsalLen: 0.95, pect: 0.8, snout: 2.7, tailLen: 0.95, scale: 1.3 },
+  swordfish: { elong: 1.32, depth: 0.78, fork: 1.3, dorsal: 1.3, dorsalLen: 0.8, pect: 0.8, snout: 2.9, tailLen: 0.95, scale: 1.3 },
+  goldfish: { elong: 0.8, depth: 1.25, fork: 0.55, dorsal: 0.9, dorsalLen: 1.0, pect: 1.1, snout: 0.7, tailLen: 1.55, scale: 0.8 },
+  minnow: { elong: 1.0, depth: 0.8, fork: 0.35, dorsal: 0.7, dorsalLen: 0.9, pect: 0.8, snout: 0.9, tailLen: 0.85, scale: 0.45 },
+};
+
+// seed → preset (the clean name of a bare species IS its seed via hashName;
+// plural too, since resolveName keeps the typed word in the clean name)
+const MORPH_BY_SEED = new Map();
+for (const k of Object.keys(FISH_MORPHS)) {
+  MORPH_BY_SEED.set(hashName(k), FISH_MORPHS[k]);
+  MORPH_BY_SEED.set(hashName(k + 's'), FISH_MORPHS[k]);
+}
 
 export function makeFish(seed, opts = {}) {
   const ringCount = opts.ringCount ?? 36;
@@ -31,9 +64,10 @@ export function makeFish(seed, opts = {}) {
   const pectCount = 2 * nPu * nPv;
   const caudCount = nCu * nCv;
   const count = bodyCount + dorsalCount + pectCount + caudCount; // 876 default
-  const bodyLen = opts.bodyLength ?? 3.0;
-  const baseRadius = opts.radius ?? 0.46; // vertical half-height (deep body)
-  const W_FRAC = 0.45; // lateral compression: width = W_FRAC × height
+  // NOTE: count is identical for every morph — morphs change dimensions, not
+  // dot counts, so the RNG draw structure below stays fixed (spec §8).
+  const bodyLen0 = opts.bodyLength ?? 3.0;
+  const baseRadius0 = opts.radius ?? 0.46; // vertical half-height (deep body)
   const sampleCount = opts.sampleCount ?? 200;
 
   const rng = mulberry32(seed);
@@ -61,30 +95,69 @@ export function makeFish(seed, opts = {}) {
     perm[d] = perm[j];
     perm[j] = t;
   }
+  // Morphology axes — APPENDED after all prior draws (spec §8). Drawn
+  // unconditionally with fixed counts; a named-species preset may override
+  // the VALUES but never skips a draw.
+  const elongJ = 0.88 + 0.34 * rng(); //                  draw: body elongation
+  const depthJ = 0.8 + 0.5 * rng(); //                    draw: body depth ratio
+  const forkJ = -0.5 + 1.6 * rng(); //                    draw: caudal fork/round
+  const dorsJ = 0.7 + 0.9 * rng(); //                     draw: dorsal height
+  const pectJ = 0.75 + 0.7 * rng(); //                    draw: pectoral size
+  const snoutJ = 0.7 + 0.8 * rng(); //                    draw: snout profile
   // ---- end frozen draw order ----
+
+  // preset resolution: explicit opts.morph wins; else the seed itself may BE
+  // a named species (board path passes only the seed); else pure seed morphs
+  const preset = opts.morph ?? MORPH_BY_SEED.get(seed >>> 0) ?? null;
+  const M = {
+    elong: preset?.elong ?? elongJ,
+    depth: preset?.depth ?? depthJ,
+    fork: preset?.fork ?? forkJ,
+    dorsal: preset?.dorsal ?? dorsJ,
+    dorsalLen: preset?.dorsalLen ?? 1,
+    pect: preset?.pect ?? pectJ,
+    snout: preset?.snout ?? snoutJ,
+    tailLen: preset?.tailLen ?? 1,
+  };
+  // morphed dimensions; elongation trades girth for length. The uniform norm
+  // shrink keeps nose→caudal-tip inside the registry bounding sphere
+  // (boundR 2.6, spec §10) without distorting the morph's proportions.
+  let bodyLen = bodyLen0 * M.elong;
+  let baseRadius = (baseRadius0 * M.depth) / Math.pow(M.elong, 0.6);
+  const norm = Math.min(1, 2.28 / (bodyLen * (0.5 + 0.252 * M.tailLen)));
+  bodyLen *= norm;
+  baseRadius *= norm;
+  // lateral compression: deep-bodied morphs get proportionally flatter
+  const WF = 0.45 / Math.sqrt(Math.max(M.depth, 1));
 
   const spine = createSpine(ringCount, sampleCount);
   const { cosT, sinT } = makeRingTables(ringCount, dotsPerRing, twistPerRing);
 
   // Elliptical-ring outward normal directions (unit, baked): the normal of the
-  // ellipse point (ry·cosθ, rz·sinθ) is ∝ (cosθ/ry, sinθ/rz); with rz=W_FRAC·ry
+  // ellipse point (ry·cosθ, rz·sinθ) is ∝ (cosθ/ry, sinθ/rz); with rz=WF·ry
   // the direction depends only on θ — one table shared by all stations.
   const ncT = new Float32Array(bodyCount);
   const nsT = new Float32Array(bodyCount);
   for (let d = 0; d < bodyCount; d++) {
     const c = cosT[d];
-    const s = sinT[d] / W_FRAC;
+    const s = sinT[d] / WF;
     const il = 1 / Math.sqrt(c * c + s * s);
     ncT[d] = c * il;
     nsT[d] = s * il;
   }
 
-  // fusiform profile (ported from v2): pointed nose, thickest ~45%, tail → 0
+  // fusiform profile (ported from v2): pointed nose, thickest ~45%, tail → 0;
+  // the snout morph multiplies in a head taper — blunt (snout<1) to a long
+  // thin rostrum/bill (snout>2, marlin/swordfish)
+  const hL = 0.115 * M.snout; // head-taper span, fraction of body
+  const hPow = 0.55 * M.snout; // taper sharpness
   const prof = new Float32Array(ringCount);
   const rNom = new Float32Array(ringCount);
   for (let i = 0; i < ringCount; i++) {
     const f = i / (ringCount - 1);
-    prof[i] = Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.04 + 0.02)), 0.8);
+    const base = Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.04 + 0.02)), 0.8);
+    const nose = 0.05 + 0.95 * Math.pow(Math.min(1, f / hL), hPow);
+    prof[i] = base * nose;
     rNom[i] = baseRadius * prof[i];
   }
   const rEffY = new Float32Array(ringCount);
@@ -119,24 +192,30 @@ export function makeFish(seed, opts = {}) {
       env * (ca1 * Math.sin(K1 * u - cp1) + ca2 * Math.sin(K2 * u - cp2)) + cturn * u * u;
   };
 
-  // ---- fin statics
-  const HD = 0.09 * bodyLen; //  dorsal max height
-  const SP = 0.14 * bodyLen; //  pectoral span
-  const CP = 0.1 * bodyLen; //   pectoral chord
-  const LC = 0.24 * bodyLen; //  caudal length
-  const HC = 0.14 * bodyLen; //  caudal half-height
+  // ---- fin statics (morph-scaled)
+  const HD = 0.09 * bodyLen * M.dorsal; // dorsal max height
+  const SP = 0.14 * bodyLen * M.pect; //   pectoral span
+  const CP = 0.1 * bodyLen * M.pect; //    pectoral chord
+  const LC = 0.24 * bodyLen * M.tailLen; // caudal length
+  const HC = 0.14 * bodyLen * (0.55 + 0.45 * M.tailLen); // caudal half-height
+  const FLOW = 0.7 + 0.3 * M.tailLen; //   long tails flex more ("flowy")
   const SWEEP_C = Math.cos(0.6); // pectoral sweep-back ~35°
   const SWEEP_S = Math.sin(0.6);
   // dorsal base maps 1:1 onto consecutive body stations starting at dor0
   const dor0 = Math.min(Math.round(0.3 * (ringCount - 1)), ringCount - 1 - nDu);
-  const iP = Math.round(0.18 * (ringCount - 1)); // pectoral attach station
+  // pectoral attach: behind the rostrum on long-snouted morphs
+  const iP = Math.round((0.18 + 0.08 * Math.max(M.snout - 1, 0)) * (ringCount - 1));
   const iT = ringCount - 1; //                      caudal attach station
   const hD = new Float32Array(nDu); // sail height profile (peak leans forward)
   const envD = new Float32Array(nDu); // flex envelope (rear flexes more)
   const phiD = new Float32Array(nDu); // K1·u_body at each dorsal station
+  // dorsalLen spreads (>1) or concentrates (<1, triangular) the sail along
+  // its base; at dorsalLen 1 this is exactly the legacy profile
+  const DL = M.dorsalLen;
   for (let m = 0; m < nDu; m++) {
     const fu = m / (nDu - 1);
-    hD[m] = HD * (0.25 + 0.75 * Math.sin(Math.PI * Math.pow(fu, 0.75)));
+    hD[m] =
+      HD * (0.1 + 0.15 * DL + 0.75 * Math.pow(Math.sin(Math.PI * Math.pow(fu, 0.75)), 1 / DL));
     envD[m] = 0.6 + 0.4 * fu;
     phiD[m] = (K1 * (dor0 + m)) / (ringCount - 1);
   }
@@ -146,13 +225,18 @@ export function makeFish(seed, opts = {}) {
   const pvOff = new Float32Array(nPv); // chord offset: mostly trailing
   for (let n = 0; n < nPv; n++) pvOff[n] = n / (nPv - 1) - 0.35;
   const cuV = new Float32Array(nCu); // caudal fork tables
-  const gC = new Float32Array(nCu); //  length factor: forked (long at edges)
+  // length factor g(cu) = aC + bC·cu²: fork>0 → long at edges (forked/lunate,
+  // fork 1 = legacy), fork 0 → truncate, fork<0 → rounded (middle longest).
+  // Edge/middle max is always ≤ 1 so LC bounds the caudal extent.
+  const gC = new Float32Array(nCu);
   const dgC = new Float32Array(nCu);
+  const bC = 0.45 * M.fork;
+  const aC = 1 - Math.max(bC, 0);
   for (let k = 0; k < nCu; k++) {
     const cu = -1 + (2 * k) / (nCu - 1);
     cuV[k] = cu;
-    gC[k] = 0.55 + 0.45 * cu * cu;
-    dgC[k] = 0.9 * cu;
+    gC[k] = aC + bC * cu * cu;
+    dgC[k] = 2 * bC * cu;
   }
   // dorsal per-frame scratch (preallocated — spec §4)
   const dorC = new Float32Array(nDu * 3);
@@ -249,7 +333,7 @@ export function makeFish(seed, opts = {}) {
       const hY = Harr[oi + 1];
       const hZ = Harr[oi + 2];
       const ry = rEffY[i];
-      const rz = W_FRAC * ry;
+      const rz = WF * ry;
       const g = drds[i];
       // taper tilt: n = (radial − r′(s)·T)/√(1+r′²) — unit without per-dot sqrt
       const inl = 1 / Math.sqrt(1 + g * g);
@@ -335,7 +419,7 @@ export function makeFish(seed, opts = {}) {
     // ---- pectoral fins (sheets, both sides): swept-back quads that flap and
     // feather; ∂P/∂pv ∥ T so the analytic normal is per-span-station
     const oP = iP * 3;
-    const rzP = W_FRAC * rEffY[iP];
+    const rzP = WF * rEffY[iP];
     const dropP = 0.25 * rEffY[iP];
     const flapA = 0.25 + 0.3 * relAmp;
     for (let side = -1; side <= 1; side += 2) {
@@ -388,7 +472,7 @@ export function makeFish(seed, opts = {}) {
     // ---- caudal fin (sheet): forked fan continuing the body wave with lag;
     // rows twist progressively (tip lags peduncle) — the whip of the tail beat
     const oT = iT * 3;
-    const psiA = 0.08 + 0.45 * relAmp;
+    const psiA = (0.08 + 0.45 * relAmp) * FLOW;
     const tailArg = K1 - cp1 - tailLag;
     for (let n = 0; n < nCv; n++) {
       const cv = (n + 1) / nCv;

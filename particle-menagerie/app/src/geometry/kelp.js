@@ -26,9 +26,13 @@ const K2 = 1.7; // cross wave spatial freq, non-harmonic with K1
 const T_RATE = 0.9; // calm — kelp sways slower than anything that swims
 
 export function makeKelp(seed, opts = {}) {
-  const ringsTotal = opts.rings ?? 120; // rings shared across strands
-  const dotsPerRing = opts.dotsPerRing ?? 10;
-  const count = ringsTotal * dotsPerRing; // fixed 1200 for every seed
+  // Phase E polish: 120×10 (1200 dots) → 132×12 (1584) — a fuller canopy
+  // within the ~1600 budget; ring/dot counts are the only densification, so
+  // the RNG stream keeps its exact block structure (draw ORDER unchanged,
+  // per-dot blocks simply extended — append-only within each block).
+  const ringsTotal = opts.rings ?? 132; // rings shared across strands
+  const dotsPerRing = opts.dotsPerRing ?? 12;
+  const count = ringsTotal * dotsPerRing; // fixed 1584 for every seed
   const H0 = opts.height ?? 4.6;
   const baseRadius = opts.radius ?? 0.1;
   // Anchor fan radius. v2 spaced strand bases ~0.12·H apart (a visible stand
@@ -39,7 +43,8 @@ export function makeKelp(seed, opts = {}) {
 
   const rng = mulberry32(seed);
   // ---- FROZEN DRAW ORDER (spec §8) — append only, never insert ----
-  const K = 3 + ((rng() * 4) | 0); //                    draw 1: strand count 3-6
+  const K = 4 + ((rng() * 3) | 0); //   draw 1: strand count 4-6 (Phase E: min
+  //                     3 → 4, denser stand — pure remap of the same draw)
   const seedAng = new Float32Array(MAX_STRANDS); // per-strand block: 8 × 6 draws
   const ph1 = new Float32Array(MAX_STRANDS); //     (always MAX_STRANDS, so the
   const ph2 = new Float32Array(MAX_STRANDS); //      stream never shifts with K)

@@ -12,7 +12,8 @@ import { createGlobalUniforms, createDotMaterial } from './shaders/dots.js';
 import { mulberry32, hashName } from './geometry/rng.js';
 import { REGISTRY } from './creatures.js';
 import { resolveName, colorFromHue } from './lexicon.js';
-import { createControls, defaultCtrl } from './controls.js';
+import { createControls, defaultCtrl, PRESETS } from './controls.js';
+import { create as createAtmosphere } from './atmosphere/index.js';
 import { createBackground } from './background.js';
 import { initSummon } from './ui/summon.js';
 import { initPlate } from './ui/plate.js';
@@ -94,6 +95,7 @@ function boot() {
     // Phase D control plumbing
     cursor: { x: 0, y: 0 }, // world px at the z=0 plane ('follow' behavior)
     turbulence: 1, // global sway multiplier (weather presets)
+    current: 0, // px/s lateral drift (weather presets; atmosphere reads it)
     planktonRate: 1, // plankton time-warp (weather current)
     planktonT: 0,
   };
@@ -119,7 +121,7 @@ function boot() {
       this.sizeCur = this.ctrl.size; // eased whole-body size morph
       this.zOff = this.ctrl.depth * DEPTH_RANGE; // eased z-band offset
       this.patC = null; // patrol center, captured lazily
-      this.gen = entry.maker(spec.seed);
+      this.gen = entry.maker(spec.seed, spec.morph ? { morph: spec.morph } : undefined);
       const n = this.gen.count;
       this.tpos = new Float32Array(n * 3);
       this.tnor = new Float32Array(n * 3);
@@ -569,6 +571,7 @@ function boot() {
       count: res.count,
       instance,
       seed: res.seed,
+      morph: res.morph ?? null, // named-species fish geometry ("blue shark")
       base,
       heading,
       rot: [entry.pitch, klass === 'rooted' || klass === 'drifter' ? prng() * TAU : 0, 0],
@@ -781,6 +784,30 @@ function boot() {
   plankton.enabled = !params.get('scene');
   if (plankton.enabled) scene.add(plankton.points);
 
+  // ---- Phase E atmosphere: caustic shafts (-20) / AO pools (-10) / sediment
+  // motes (0), board mode only — the Phase B spike scenes (?scene=) are a
+  // pixel-level harness contract and must stay atmosphere-free, exactly like
+  // the plankton above. Created before the pipeline so compile() prewarms its
+  // two small shaders with everything else. Layer intensities boot at the
+  // moonlit preset (the default weather); controls.applyScene drives them on
+  // every preset crossfade thereafter.
+  const atmosphere = plankton.enabled
+    ? createAtmosphere(scene, globalUniforms, {
+        seed: 0x0a7305fe,
+        width: state.W,
+        height: state.H,
+        camDist,
+        zRange: [Z_MIN, Z_MAX],
+        getRooted: () => state.creatures.filter((c) => c.klass === 'rooted'),
+      })
+    : null;
+  if (atmosphere) {
+    const p0 = PRESETS.moonlit;
+    atmosphere.caustics.setIntensity(p0.caustics);
+    atmosphere.sediment.setIntensity(p0.sediment);
+    atmosphere.ao.setIntensity(p0.ao);
+  }
+
   // ---- same-species schooling (v2 rule, in 3D): always separate, pull
   // toward same-name neighbors; anchors move, sine-wander rides on top ------
   function applySchooling(dt) {
@@ -863,6 +890,7 @@ function boot() {
     globalUniforms,
     pipeline,
     plankton,
+    atmosphere,
     spawnName,
     releaseAll,
     loadBoard,
@@ -920,6 +948,7 @@ function boot() {
     state.H = h;
     updateCameraDistance(h);
     pipeline.resize(w, h);
+    if (atmosphere) atmosphere.resize(w, h);
     globalUniforms.uDpr.value = renderer.getPixelRatio();
     globalUniforms.uFogScale.value = 540 / h; // presets viewport-invariant (tuned at 540)
   }
@@ -976,6 +1005,9 @@ function boot() {
       state.planktonT += dt * (state.planktonRate ?? 1);
       plankton.update(state.planktonT);
     }
+    // Phase E atmosphere rides the same injectable clock; the weather's
+    // current (px/s, set by controls.tick) drives shaft sway + mote drift
+    if (atmosphere) atmosphere.update(state.simT, state.current ?? 0);
     if (hashDirtyT >= 0 && state.simT - hashDirtyT >= 0.3) saveHash();
     globalUniforms.uFocusZ.value = state.focus
       ? camDist - state.focus.points.position.z
@@ -1023,6 +1055,7 @@ function boot() {
     controls, // Phase D control API (the UI chrome's contract)
     feeding, // Phase E mote (null in spike scenes): drop(x,y) / getMote()
     capture, // Phase E I/O (null in spike scenes): snapshotPNG / toggleRecording
+    atmosphere, // Phase E layers (null in spike scenes): caustics/sediment/ao
     test: {
       setScene,
       spawn: (name) => spawnName(name),
@@ -1035,6 +1068,13 @@ function boot() {
       },
       setSway: (v) => {
         state.sway = v;
+      },
+      creaturePos: (id) => {
+        const c = state.creatures.find((cc) => cc.id === id && cc.state === 'alive');
+        return c ? { x: c.px, y: c.py, z: c.pz } : null;
+      },
+      setPlankton: (alpha) => {
+        plankton.points.material.uniforms.uAlpha.value = alpha;
       },
       setTrails: (k) => pipeline.setTrails(k),
       releaseAll,

@@ -35,12 +35,18 @@ Authority order when docs conflict: `specs/*` > `project-scope.md` > `technical-
 
 ## Current state / next step
 
+**v3 IS COMPLETE (2026-07-29).** All six phases of `project-scope.md` shipped and verified: the app lives in `app/` (vite, three 0.185.1 exact-pinned), passes a 14-scenario Playwright harness (`app/test/run.mjs`), and builds to a single offline HTML file (`npm run build` → `app/dist/index.html`). Bathyscaphe chrome, 9 archetypes + 8 named fish species, 5 weather presets, atmosphere (caustics/sediment/AO/bloom), feeding, capture, quality governor, night-ocean background, relative-depth fog. See `WHAT-TO-TRY.md` for the tour. Future work: re-run the harness after any change; the specs in `specs/` remain normative.
+
+<details><summary>Historical: the original v3 kickoff plan (superseded by completion)</summary>
+
 **Next step is Phase 0 of the plan in `threejs-critical-breakdown.md` §5: the lighting spike.**
 One hardcoded eel in three.js with the full lighting stack: 3D spine (two incommensurate traveling waves so the coil evolves), ~52 quantized rings × ~24 dots (quantized rings = crisp dotted ribs; do not scatter randomly), per-dot normals from ring offsets, directional Lambert + rim shading, additive-blend glow sprites, tonemapping (blowout is a known top risk), particle depth-of-field, exponential fog, trails via offscreen accumulation target (NOT a fade quad if tonemapping is in the chain — see Risk 3). Gate: it must clearly beat v2 on sight before porting the other archetypes.
 
 Constraint carried from Cowork: three.js was pinned to the cdnjs r128 global build (only CDN allowed in claude.ai previews). In local Claude Code this constraint is GONE — prefer a modern three version via npm/vite, which also unlocks official EffectComposer/UnrealBloomPass instead of hand-rolled bloom. Re-check Risks 1 and 3 in the breakdown doc under the new setup.
 
 Phase 0 gate → Phase 1 (port all 9 archetypes to 3D frames) → Phase 2 (controls, progressive disclosure + presets, not 20 raw sliders) → Phase 3 (atmosphere: caustics, sediment, bloom, feeding interaction, WebM record) → Phase 4 (hardening: adaptive density governor, fill-rate caps).
+
+</details>
 
 ## Testing conventions used so far
 

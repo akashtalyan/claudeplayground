@@ -23,7 +23,9 @@ const TAU = Math.PI * 2;
 // Integrator tuning: 0.3 → 0.55 — at 0.3 the motes vanished entirely under
 // the abyss preset's heavy fog; still comfortably dimmer than a creature dot
 // (presets run this at 0.3-0.55 intensity in the lit weathers).
-const BASE_ALPHA = 0.55;
+// 0.55 was invisible once real fog + the sub-1.5px shader fade + dark-preset
+// gains stacked; marine snow needs to actually read against near-black water.
+const BASE_ALPHA = 0.9;
 
 export function create( scene, globalUniforms, opts = {} ) {
 
@@ -90,7 +92,7 @@ export function create( scene, globalUniforms, opts = {} ) {
 		// 0.8-1.7, but the sub-1.5-device-px fade in the dot shader was erasing
 		// most of the layer — marine snow should be faint, not absent)
 		const vd = ( camDist - bz[ i ] ) / REF_DIST;
-		aSize[ i ] = ( 1.2 + 1.2 * rng() ) * vd;
+		aSize[ i ] = ( 1.6 + 1.4 * rng() ) * vd;
 		aTw[ i ] = rng();
 		aRing[ i ] = rng();
 	}

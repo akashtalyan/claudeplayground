@@ -298,12 +298,167 @@ async function main() {
         }
       });
 
+      // ---- 11. Phase D controls: chrome + every plate knob + presets +
+      // summon path + ambient + hover label + URL round-trip ---------------
+      await scenario('controls', async (s) => {
+        await load(`fixedstep=1&board=${encodeURIComponent('jellyfish,manta')}`);
+        await page.waitForFunction(
+          () => window.__menagerie.ui && typeof window.__menagerie.ui.forceAmbient === 'function',
+        );
+        await step(260); // ~4.3s sim: formations complete
+
+        // -- select creature c1 (jellyfish) -> gauge plate surfaces
+        await page.evaluate(() => window.__menagerie.controls.select('c1'));
+        await page.waitForTimeout(650); // 400ms rise + anchor settle (wall clock)
+        await step(20);
+        await shot('plate-open.png');
+
+        // -- drive a slider row with a REAL pointer drag; assert live param
+        s.knobs = {};
+        const drive = async (key) => {
+          const before = await page.evaluate((k) => window.__menagerie.controls.getParam('c1', k), key);
+          const box = await page.locator(`#plate .plate-row[data-key="${key}"] .plate-track`).boundingBox();
+          const y = box.y + box.height / 2;
+          await page.mouse.move(box.x + box.width * 0.2, y);
+          await page.mouse.down();
+          await page.mouse.move(box.x + box.width * 0.85, y, { steps: 4 });
+          await page.mouse.up();
+          await page.waitForTimeout(500); // needle spring settles on wall clock
+          const after = await page.evaluate((k) => window.__menagerie.controls.getParam('c1', k), key);
+          s.knobs[key] = { before, after };
+          if (!(Math.abs(after - before) > 1e-3)) throw new Error(`dead knob: ${key} (${before} -> ${after})`);
+        };
+        for (const k of ['glow', 'tempo', 'sway', 'size']) await drive(k);
+
+        // -- 'more ›' drawer: 4 advanced sliders + behavior rotary + swatch
+        await page.locator('#plate .plate-actions [data-act="more"]').click();
+        await page.waitForTimeout(600); // plate re-centers on its anchor (height grew)
+        for (const k of ['twinkle', 'iridescence', 'density', 'depth']) await drive(k);
+
+        const behBefore = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'behavior'));
+        await page.locator('#plate .plate-behavior .plate-rot-arrow').nth(1).click(); // ›
+        await page.waitForTimeout(400); // rotary detent settle
+        const behAfter = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'behavior'));
+        s.behavior = { before: behBefore, after: behAfter };
+        if (behAfter === behBefore) throw new Error('dead knob: behavior rotary');
+
+        await page.locator('#plate .plate-swatch').nth(3).click(); // hue 185 (cyan)
+        const hue = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'color'));
+        s.color = hue;
+        if (hue !== 185) throw new Error(`dead knob: color swatch (got ${hue})`);
+        await step(20); // recolor lands in the frame
+        await shot('plate-more.png');
+
+        // -- esc sinks the plate, clears selection
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(450);
+        const sel = await page.evaluate(() => window.__menagerie.controls.getSelected());
+        if (sel !== null) throw new Error('esc did not clear selection');
+
+        // -- all 5 weather presets: engine crossfade + scene-param deltas
+        s.presets = {};
+        const names = await page.evaluate(() => window.__menagerie.controls.presetNames());
+        let prev = null;
+        for (const name of names) {
+          await page.evaluate((n) => window.__menagerie.controls.setPreset(n), name);
+          await step(150); // 2.5s sim: 2s crossfade completes + trails settle
+          const sv = await page.evaluate(() => window.__menagerie.controls.sceneValues());
+          s.presets[name] = { gain: sv.gain, fogDensity: sv.fogDensity, trailsK: sv.trailsK };
+          if (prev && !(Math.abs(sv.gain - prev.gain) > 1e-3 && Math.abs(sv.fogDensity - prev.fogDensity) > 1e-6)) {
+            throw new Error(`preset '${name}' produced no scene-param delta`);
+          }
+          prev = sv;
+          // stepping burns wall-clock; make sure idle-ambient hasn't sunk the
+          // chrome before the shot (the harness is minutes of "idle" to it)
+          await page.evaluate(() => window.__menagerie.ui.forceAmbient(false));
+          await page.waitForTimeout(750);
+          await shot(`preset-${name.replace(/\s+/g, '-')}.png`);
+        }
+        await page.evaluate(() => window.__menagerie.controls.setPreset('moonlit', { snap: true }));
+        await step(60); // trails re-settle under moonlit
+
+        // -- summon via the REAL input path (type + Enter)
+        await page.evaluate(() => window.__menagerie.ui.forceAmbient(false)); // wake after stepping
+        await page.waitForTimeout(750);
+        const popBefore = await page.evaluate(() => window.__menagerie.test.aliveCount());
+        await page.locator('#summon-input').click();
+        await page.keyboard.type('jellyfish');
+        await page.keyboard.press('Enter');
+        const popAfter = await page.evaluate(() => window.__menagerie.test.aliveCount());
+        s.population = { before: popBefore, after: popAfter };
+        if (popAfter !== popBefore + 1) throw new Error(`summon: population ${popBefore} -> ${popAfter}, expected +1`);
+        const cleared = await page.evaluate(() => document.getElementById('summon-input').value);
+        if (cleared !== '') throw new Error('summon: field did not clear');
+        await step(130); // ~2.2s sim: the new jellyfish forms
+        await page.mouse.move(30, 30); // park the pointer off every creature
+        await page.waitForTimeout(350); // hover label (if any) fades back out
+        await shot('state-a.png'); // at-rest chrome: summon row + small rotary
+
+        // -- ambient: all chrome sinks; screenshot must be chrome-free
+        await page.evaluate(() => window.__menagerie.ui.forceAmbient(true));
+        await page.waitForTimeout(1600); // 1.2s sink + fade tails
+        const summonOpacity = await page.evaluate(
+          () => +getComputedStyle(document.getElementById('summon')).opacity,
+        );
+        s.ambientSummonOpacity = summonOpacity;
+        if (summonOpacity > 0.01) throw new Error(`ambient: summon row still visible (opacity ${summonOpacity})`);
+        await shot('ambient.png');
+        await page.evaluate(() => window.__menagerie.ui.forceAmbient(false));
+        await page.waitForTimeout(900); // staggered return completes
+
+        // -- hover label: pick a creature whose body (and label spot) is well
+        // inside the viewport (c1 is now giant and rides the right edge)
+        const a = await page.evaluate(() => {
+          for (const id of ['c2', 'c3', 'c1']) {
+            const an = window.__menagerie.controls.screenAnchor(id);
+            if (an && an.x > 80 && an.x < innerWidth - 120 && an.y - an.radiusPx > 60 && an.y < innerHeight - 120) return an;
+          }
+          return null;
+        });
+        if (!a) throw new Error('no hoverable creature fully in view');
+        await page.mouse.move(a.x, a.y);
+        await page.waitForTimeout(800); // label fade-in (wall clock rAF)
+        const label = await page.evaluate(() => {
+          const el = document.querySelector('.scene-label');
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { opacity: +getComputedStyle(el).opacity, text: el.textContent, x: r.x, y: r.y, w: r.width, h: r.height };
+        });
+        s.label = label;
+        if (!label || !(label.opacity > 0.2) || !label.text) {
+          throw new Error(`hover label did not surface (${JSON.stringify(label)})`);
+        }
+        if (label.y < 0 || label.y + label.h > 540 || label.x < 0 || label.x + label.w > 960) {
+          throw new Error(`hover label off-viewport (${JSON.stringify(label)})`);
+        }
+        await shot('label.png');
+
+        // -- URL round-trip: serialize -> reload -> serialize must match
+        const ser = await page.evaluate(() => window.__menagerie.controls.serialize());
+        s.serialized = ser;
+        await page.goto(`${server.origin}/?fixedstep=1#${encodeURIComponent(ser)}`, {
+          waitUntil: 'load', timeout: 90000,
+        });
+        await page.waitForFunction(
+          () => window.__menagerie && window.__menagerie.clock && typeof window.__menagerie.clock.stepMany === 'function',
+          null, { timeout: 90000 },
+        );
+        await step(60);
+        const ser2 = await page.evaluate(() => window.__menagerie.controls.serialize());
+        if (ser2 !== ser) throw new Error(`URL round-trip drifted:\n  before ${ser}\n  after  ${ser2}`);
+        const glowBack = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'glow'));
+        s.roundTrip = { glow: { set: s.knobs.glow.after, restored: glowBack } };
+        if (!(Math.abs(glowBack - s.knobs.glow.after) < 0.02)) {
+          throw new Error(`round-trip glow ${s.knobs.glow.after} -> ${glowBack}`);
+        }
+      });
+
     } finally {
       await browser.close().catch(() => {});
       await server.close().catch(() => {});
     }
   } else {
-    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo']) {
+    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls']) {
       report.scenarios[name] = { pass: false, error: 'skipped: build failed' };
     }
   }

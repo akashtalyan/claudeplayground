@@ -14,10 +14,14 @@ const VERT = /* glsl */ `
 uniform vec3 uColor;
 uniform float uTime;
 uniform float uFormation;
+uniform float uIrid;
 uniform vec3 uLightDir;
 uniform vec3 uLightColor;
 uniform float uRim;
 uniform float uFogDensity;
+uniform float uFogScale;
+uniform vec3 uFogTint;
+uniform float uGain;
 uniform float uFocusZ;
 uniform float uAperture;
 uniform float uDpr;
@@ -74,18 +78,30 @@ void main() {
 	vec3 viewDir = normalize( -mv.xyz );
 	float rim = pow( 1.0 - abs( dot( n, viewDir ) ), 3.0 ) * uRim;
 
+	// Twinkle phase: per-dot aTw plus a slow per-ring offset (rib shimmer).
+	// (computed before the color terms so iridescence can reuse it)
+	vTw = aTw * TAU + aRing * 0.7;
+
 	// Directional terms scale with uFormation: a still-forming swarm has
 	// meaningless normals and shows only the ambient floor.
 	// Ambient floor 0.35 -> 0.45 (Phase C tuning): face-on sheet interiors
 	// (ray wing, bloom petals) get little rim and were reading faint.
 	vec3 lit = uColor * ( 0.45 + uLightColor * ( lambert + rim ) * uFormation );
 
+	// Iridescence (Phase D): per-dot hue rotation with view angle — Rodrigues
+	// rotation of the color about the gray axis. uIrid 0 is an exact identity.
+	float ndv = abs( dot( n, viewDir ) );
+	float hueA = uIrid * ( 2.4 * ( 1.0 - ndv ) - 1.0 + 0.6 * sin( vTw + uTime * 0.6 ) );
+	const vec3 GREY = vec3( 0.57735027 );
+	float ca = cos( hueA );
+	float sa = sin( hueA );
+	lit = lit * ca + cross( GREY, lit ) * sa + GREY * dot( GREY, lit ) * ( 1.0 - ca );
+
 	// Exponential fog is part of the emitted light, applied pre-accumulation so
 	// it lands in the trail history (frame-graph rule 9 / spec section 9).
-	vColor = lit * exp( -uFogDensity * viewDist );
-
-	// Twinkle phase: per-dot aTw plus a slow per-ring offset (rib shimmer).
-	vTw = aTw * TAU + aRing * 0.7;
+	// uFogTint absorbs per channel (watery weather); uGain is the weather
+	// presets' pre-accumulation exposure. Both default to identity.
+	vColor = lit * exp( -uFogDensity * uFogScale * viewDist * uFogTint ) * uGain;
 
 	gl_Position = projectionMatrix * mv;
 }
@@ -96,6 +112,7 @@ precision highp float;
 
 uniform float uAlpha;
 uniform float uTime;
+uniform vec2 uTwk;
 
 varying vec3 vColor;
 varying float vAlphaExtra;
@@ -113,7 +130,9 @@ void main() {
 	float core = exp( -d2 * 12.0 );
 	float halo = 0.55 * exp( -d2 * 3.2 ) * clamp( 1.0 - d2, 0.0, 1.0 );
 
-	float twinkle = 0.80 + 0.20 * sin( uTime * 2.1 + vTw );
+	// Twinkle rate/depth from uTwk (Phase D); the default (2.1, 0.4) reduces to
+	// exactly the Phase C constant 0.80 + 0.20 * sin( uTime * 2.1 + vTw ).
+	float twinkle = 1.0 - uTwk.y + uTwk.y * ( 0.5 + 0.5 * sin( uTime * uTwk.x + vTw ) );
 
 	// Linear HDR out. Blending is SrcAlpha/One (additive), so the whole scalar
 	// intensity rides in alpha and multiplies vColor exactly once.
@@ -136,6 +155,12 @@ export function createGlobalUniforms( renderer ) {
 		uLightColor: { value: new THREE.Color( 1.0, 1.0, 1.0 ) },
 		uRim: { value: 1.0 },
 		uFogDensity: { value: 0.045 },
+		// Normalizes fog to the 540px-CSS-height tuning viewport: viewDist scales
+		// with camDist (which scales with viewport height), so without this the
+		// same preset over-fogs on taller screens.
+		uFogScale: { value: 1.0 },
+		uFogTint: { value: new THREE.Vector3( 1, 1, 1 ) },
+		uGain: { value: 1.0 },
 		uFocusZ: { value: 12.0 },
 		uAperture: { value: 0.05 },
 		uDpr: { value: renderer.getPixelRatio() },
@@ -152,11 +177,15 @@ export function createDotMaterial( globalUniforms ) {
 			uAlpha: { value: 1.0 },
 			uTime: { value: 0.0 },
 			uFormation: { value: 1.0 },
+			uTwk: { value: new THREE.Vector2( 2.1, 0.4 ) },
+			uIrid: { value: 0.0 },
 			// global — same object references across all materials, on purpose
 			uLightDir: globalUniforms.uLightDir,
 			uLightColor: globalUniforms.uLightColor,
 			uRim: globalUniforms.uRim,
 			uFogDensity: globalUniforms.uFogDensity,
+			uFogTint: globalUniforms.uFogTint,
+			uGain: globalUniforms.uGain,
 			uFocusZ: globalUniforms.uFocusZ,
 			uAperture: globalUniforms.uAperture,
 			uDpr: globalUniforms.uDpr,

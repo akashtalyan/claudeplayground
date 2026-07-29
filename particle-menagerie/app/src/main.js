@@ -12,6 +12,12 @@ import { createGlobalUniforms, createDotMaterial } from './shaders/dots.js';
 import { mulberry32, hashName } from './geometry/rng.js';
 import { REGISTRY } from './creatures.js';
 import { resolveName, colorFromHue } from './lexicon.js';
+import { createControls, defaultCtrl } from './controls.js';
+import { initSummon } from './ui/summon.js';
+import { initPlate } from './ui/plate.js';
+import { initRotary } from './ui/rotary.js';
+import { initAmbient } from './ui/ambient.js';
+import { initLabels } from './ui/labels.js';
 
 const REF_DIST = 10; // must match REF_DIST in shaders/dots.js
 const FOV = 55;
@@ -20,6 +26,7 @@ const EASE_RATE = 4.5; // 1/s; same coefficient eases positions AND normals
 const MAXC = 14; // board population cap
 const SPAWN_STAGGER = 0.35; // s between formation starts in a batch
 const DIE_TIME = 1.3; // s disperse fade
+const DEPTH_RANGE = 150; // world px z offset at depth ctrl = ±1
 const TAU = Math.PI * 2;
 
 const params = new URLSearchParams(location.search);
@@ -80,7 +87,14 @@ function boot() {
     spawnSlot: 0, // deterministic placement counter
     W: window.innerWidth || 960,
     H: window.innerHeight || 540,
+    // Phase D control plumbing
+    cursor: { x: 0, y: 0 }, // world px at the z=0 plane ('follow' behavior)
+    turbulence: 1, // global sway multiplier (weather presets)
+    planktonRate: 1, // plankton time-warp (weather current)
+    planktonT: 0,
   };
+  let nextId = 1; // creature ids ('c1', 'c2', ...) for the controls API
+  let controls = null; // assigned after the pipeline exists
 
   function parseFloatOr(v, d) {
     const f = parseFloat(v);
@@ -93,6 +107,12 @@ function boot() {
       this.spec = spec;
       const entry = REGISTRY[spec.arch];
       this.klass = spec.klass; // 'legacy' | 'swimmer' | 'rooted' | 'drifter'
+      this.id = spec.id ?? 'c' + nextId++;
+      // control overlay (Phase D) — spec.ctrl arrives from URL-hash restore
+      this.ctrl = spec.ctrl ? { ...defaultCtrl(), ...spec.ctrl } : defaultCtrl();
+      this.sizeCur = this.ctrl.size; // eased whole-body size morph
+      this.zOff = this.ctrl.depth * DEPTH_RANGE; // eased z-band offset
+      this.patC = null; // patrol center, captured lazily
       this.gen = entry.maker(spec.seed);
       const n = this.gen.count;
       this.tpos = new Float32Array(n * 3);
@@ -127,19 +147,18 @@ function boot() {
       g.setAttribute('aRing', new THREE.BufferAttribute(aRing, 1));
       // fixed local bounding sphere (geometry-spec section 10) — never recomputed
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), spec.boundR);
-      // lean school members: render-fraction only (geometry-spec section 9);
-      // the build-time cross-ring shuffle makes any prefix a uniform subsample
-      if (spec.drawFrac < 1) g.setDrawRange(0, Math.floor(n * spec.drawFrac));
       this.geometry = g;
 
       this.material = createDotMaterial(globalUniforms);
-      this.material.uniforms.uColor.value.setRGB(...spec.color);
-      this.material.uniforms.uAlpha.value = spec.alpha;
+      this.material.uniforms.uAlpha.value = spec.alpha * this.ctrl.glow;
       this.material.uniforms.uFormation.value = 0;
+      // color / twinkle / iridescence / density (drawRange over the build-time
+      // cross-ring shuffle — geometry is NEVER rebuilt)
+      this.applyCtrlVisual();
 
       this.points = new THREE.Points(g, this.material);
       this.points.rotation.order = 'YXZ'; // yaw, then pitch, then bank
-      this.points.scale.setScalar(spec.scale);
+      this.points.scale.setScalar(spec.scale * this.sizeCur);
       this.spawnT = state.simT;
       this.state = 'alive';
       this.dieT = 0;
@@ -152,8 +171,35 @@ function boot() {
       this.pz = spec.base[2];
       this.heading = spec.heading ?? 0;
       this.speed = spec.speed ?? 0;
-      this.rad = spec.boundR * spec.scale; // world-px interaction radius
+      this.rad = spec.boundR * spec.scale * this.sizeCur; // world-px interaction radius
       this.applyMotion(state.simT, 0);
+    }
+
+    // static ctrl values -> uniforms/drawRange (color, twinkle, iridescence,
+    // density). Called at construction and by controls.setParam.
+    applyCtrlVisual() {
+      const u = this.material.uniforms;
+      const col = this.ctrl.color != null ? colorFromHue(this.ctrl.color) : this.spec.color;
+      u.uColor.value.setRGB(col[0], col[1], col[2]);
+      // default twinkle 1 -> uTwk (2.1, 0.4), byte-identical to Phase C
+      u.uTwk.value.set(2.1 * Math.max(this.ctrl.twinkle, 0.15), 0.4 * this.ctrl.twinkle);
+      u.uIrid.value = this.ctrl.iridescence;
+      const frac = this.spec.drawFrac * this.ctrl.density;
+      this.geometry.setDrawRange(0, Math.max(1, Math.floor(this.gen.count * frac)));
+    }
+
+    // re-form: scatter back to a cloud and replay the formation ramp
+    reform() {
+      const rng = mulberry32((this.spec.seed ^ 0x2545f491 ^ ((state.simT * 977) | 0)) >>> 0);
+      const R = this.spec.scatterR;
+      const p = this.posAttr.array;
+      const q = this.norAttr.array;
+      for (let i = 0; i < p.length; i++) p[i] = (rng() * 2 - 1) * R;
+      for (let i = 0; i < q.length; i++) q[i] = rng() * 2 - 1;
+      this.posAttr.needsUpdate = true;
+      this.norAttr.needsUpdate = true;
+      this.spawnT = state.simT;
+      this.material.uniforms.uFormation.value = 0;
     }
 
     // legacy spike drift — byte-for-byte the Phase B behavior
@@ -179,16 +225,24 @@ function boot() {
         this.applyDrift(t);
         return;
       }
+      const b = this.ctrl.behavior;
       if (this.klass === 'rooted') {
         // anchored to the seabed; only a gentle current wobble in the frame
+        // (behavior modes are no-ops for the rooted, except sleep stills them)
+        const w = b === 'sleep' ? 0.25 : 1;
         o.position.set(this.px, this.py, this.pz);
         o.rotation.set(
-          0.03 * Math.sin(0.05 * t + this.d1),
-          s.rot[1] + 0.06 * Math.sin(0.04 * t + this.d0),
-          0.03 * Math.sin(0.06 * t + this.d2),
+          0.03 * w * Math.sin(0.05 * t + this.d1),
+          s.rot[1] + 0.06 * w * Math.sin(0.04 * t + this.d0),
+          0.03 * w * Math.sin(0.06 * t + this.d2),
         );
         return;
       }
+      // Phase D behavior modes ('drift' and 'school' keep the class motion;
+      // schooling attraction for 'school' lives in applySchooling)
+      if (b === 'sleep') return this.applySleep(t, dt);
+      if (b === 'patrol') return this.applyPatrol(t, dt);
+      if (b === 'follow') return this.applyFollow(t, dt);
       if (this.klass === 'drifter') {
         // slow closed-form wander around the anchor + idle spin
         o.position.set(
@@ -236,8 +290,100 @@ function boot() {
       );
     }
 
+    // sleep: settle toward the seabed, minimal motion
+    applySleep(t, dt) {
+      const s = this.spec;
+      const o = this.points;
+      const bottom = -((state.H / 2 - 26) * (camDist - this.pz)) / camDist + this.rad * 0.45;
+      this.py += (bottom - this.py) * (1 - Math.exp(-0.35 * dt));
+      this.px += Math.sin(0.05 * t + this.d0) * 2 * dt;
+      o.position.set(this.px, this.py, this.pz);
+      o.rotation.set(
+        s.rot[0] + 0.02 * Math.sin(0.04 * t + this.d1),
+        o.rotation.y,
+        0.02 * Math.sin(0.05 * t + this.d2),
+      );
+    }
+
+    // patrol: slow closed elliptical path around the point where patrol began
+    applyPatrol(t, dt) {
+      const s = this.spec;
+      const o = this.points;
+      if (!this.patC) {
+        this.patC = {
+          x: this.px,
+          y: this.py,
+          z: Math.min(Math.max(this.pz, Z_MIN + 90), Z_MAX - 70),
+        };
+        this.patAng = this.d0;
+      }
+      const spd = (this.speed || 26) * this.ctrl.tempo;
+      this.patAng += (spd / 150) * dt; // tangential speed ~ roam speed
+      const a = this.patAng;
+      const hw = state.W / 2 - 100;
+      this.px = Math.min(Math.max(this.patC.x + 150 * Math.cos(a), -hw), hw);
+      this.pz = Math.min(Math.max(this.patC.z + 60 * Math.sin(a), Z_MIN + 20), Z_MAX - 10);
+      this.py += (this.patC.y + 20 * Math.sin(a * 0.5) - this.py) * Math.min(1, 1.5 * dt);
+      const dx = -Math.sin(a);
+      const dz = 0.4 * Math.cos(a);
+      this.heading = Math.atan2(-dz, dx);
+      o.position.set(this.px, this.py, this.pz);
+      if (this.klass === 'swimmer') {
+        o.rotation.set(s.rot[0], this.heading + s.yawOffset, -0.15 * Math.cos(a));
+      } else {
+        o.rotation.set(
+          s.rot[0] + 0.06 * Math.sin(0.05 * t + this.d1),
+          s.rot[1] + s.spin * (t - this.spawnT),
+          0.05 * Math.sin(0.05 * t + this.d2),
+        );
+      }
+    }
+
+    // follow: steer toward the cursor's world point, slowing on arrival
+    applyFollow(t, dt) {
+      const s = this.spec;
+      const o = this.points;
+      const cx = state.cursor.x;
+      const cy = state.cursor.y;
+      const tz = -60; // a pleasant band just behind the z=0 plane
+      const dx = cx - this.px;
+      const dz = tz - this.pz;
+      const want = Math.atan2(-dz, dx);
+      let diff = want - this.heading;
+      while (diff > Math.PI) diff -= TAU;
+      while (diff < -Math.PI) diff += TAU;
+      this.heading += diff * Math.min(1, 2.2 * dt);
+      const dist = Math.hypot(dx, cy - this.py, dz);
+      const spd = (this.speed || 30) * this.ctrl.tempo * Math.min(1, dist / (this.rad * 1.4 + 40));
+      this.px += Math.cos(this.heading) * spd * dt;
+      this.pz = Math.min(Math.max(this.pz - Math.sin(this.heading) * spd * dt, Z_MIN + 20), Z_MAX - 10);
+      this.py += (cy - this.py) * Math.min(1, 1.2 * dt);
+      o.position.set(this.px, this.py, this.pz);
+      if (this.klass === 'swimmer') {
+        o.rotation.set(
+          s.rot[0] + 0.05 * Math.sin(0.07 * t + this.d1),
+          this.heading + s.yawOffset,
+          -diff * 0.3,
+        );
+      } else {
+        o.rotation.set(
+          s.rot[0],
+          s.rot[1] + s.spin * (t - this.spawnT),
+          0.05 * Math.sin(0.05 * t + this.d2),
+        );
+      }
+    }
+
     update(simT, dt, sway) {
-      this.gen.updateTargets(simT + this.spec.phase, sway, this.spec.tempo, this.tpos, this.tnor);
+      // sleep slows the body's own animation as well as its travel
+      const slp = this.ctrl.behavior === 'sleep' ? 0.35 : 1;
+      this.gen.updateTargets(
+        simT + this.spec.phase,
+        sway * this.ctrl.sway * slp,
+        this.spec.tempo * this.ctrl.tempo * slp,
+        this.tpos,
+        this.tnor,
+      );
       const c = 1 - Math.exp(-EASE_RATE * dt);
       const p = this.posAttr.array;
       const q = this.norAttr.array;
@@ -255,10 +401,28 @@ function boot() {
       if (this.state === 'dying') {
         this.dieT += dt;
         const f = Math.max(0, 1 - this.dieT / DIE_TIME);
-        u.uAlpha.value = this.spec.alpha * f * f;
+        u.uAlpha.value = this.spec.alpha * this.ctrl.glow * f * f;
         this.py += 14 * dt; // released creatures loosen upward as they fade
+      } else {
+        u.uAlpha.value = this.spec.alpha * this.ctrl.glow;
       }
+      // eased whole-body size morph (ctrl.size)
+      this.sizeCur += (this.ctrl.size - this.sizeCur) * (1 - Math.exp(-3 * dt));
+      this.points.scale.setScalar(this.spec.scale * this.sizeCur);
+      this.rad = this.spec.boundR * this.spec.scale * this.sizeCur;
       this.applyMotion(simT, dt);
+      // eased z-band offset (ctrl.depth): a parallax layer on top of the
+      // class motion; the rooted stay pinned to the projected seabed line
+      if (this.klass !== 'legacy') {
+        this.zOff += (this.ctrl.depth * DEPTH_RANGE - this.zOff) * (1 - Math.exp(-1.5 * dt));
+        if (Math.abs(this.zOff) > 0.01) {
+          const o = this.points;
+          const z0 = o.position.z;
+          const z1 = Math.min(z0 + this.zOff, camDist - 140);
+          if (this.klass === 'rooted') o.position.y *= (camDist - z1) / (camDist - z0);
+          o.position.z = z1;
+        }
+      }
       return !(this.state === 'dying' && this.dieT >= DIE_TIME);
     }
 
@@ -371,7 +535,11 @@ function boot() {
     let base;
     let heading = prng() * TAU;
     if (klass === 'rooted') {
-      const px = (prng() * 2 - 1) * (state.W / 2 - 120);
+      let px = (prng() * 2 - 1) * (state.W / 2 - 120);
+      // Keep rooted flora out of the summon input's center band (pure remap of
+      // the same draw — no extra prng calls, draw order stays frozen).
+      const EXCL = 220;
+      if (Math.abs(px) < EXCL) px = (px < 0 ? -1 : 1) * (EXCL + (EXCL - Math.abs(px)) * 0.6);
       const pz = -280 + prng() * 260;
       const vd = (camDist - pz) / camDist;
       const lift = 4 + prng() * 36; // px above the projected bottom edge
@@ -384,6 +552,7 @@ function boot() {
       ];
     }
     return {
+      id: 'c' + nextId++, // assigned at spec time so summon() can report it
       kind: res.arch,
       arch: res.arch,
       klass,
@@ -451,24 +620,47 @@ function boot() {
 
   // Hash derives from live state (same hash → identical board, spec §8-10):
   // one entry per species batch, count re-prefixed like v2 ("school of fish"
-  // round-trips as "5 fish").
+  // round-trips as "5 fish"). Phase D extends the schema with extra ';'
+  // segments (preset + per-creature control diffs) via the controls hook;
+  // plain name-list hashes remain valid input.
   const NUM_WORDS = { 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six' };
-  function saveHash() {
-    if (!state.boardMode) return;
-    const names = [];
+  let hashExtrasFn = null; // set by createControls
+  let hashDirtyT = -1; // throttled saves (slider drags), flushed in frame()
+
+  function boardBatches() {
+    const out = [];
     const seen = new Set();
     const add = (spec) => {
       if (spec.instance !== 0 || seen.has(spec.name)) return;
       seen.add(spec.name);
-      names.push(spec.count > 1 ? `${NUM_WORDS[spec.count]} ${spec.name}` : spec.name);
+      out.push({ name: spec.name, count: spec.count });
     };
     for (const c of state.creatures) if (c.state === 'alive' && c.klass !== 'legacy') add(c.spec);
     for (const p of state.pending) add(p.spec);
+    return out;
+  }
+
+  function hashBody() {
+    const batches = boardBatches();
+    const names = batches.map((b) => (b.count > 1 ? `${NUM_WORDS[b.count]} ${b.name}` : b.name));
+    const parts = names.length ? [names.join(',')] : [];
+    if (hashExtrasFn) parts.push(...hashExtrasFn(batches));
+    return parts.join(';');
+  }
+
+  function saveHash() {
+    if (!state.boardMode) return;
+    hashDirtyT = -1;
+    const body = hashBody();
     try {
-      history.replaceState(null, '', names.length ? '#' + encodeURIComponent(names.join(',')) : location.pathname + location.search);
+      history.replaceState(null, '', body ? '#' + encodeURIComponent(body) : location.pathname + location.search);
     } catch {
       /* about:blank / file contexts */
     }
+  }
+
+  function requestSave() {
+    if (hashDirtyT < 0) hashDirtyT = state.simT;
   }
 
   function loadBoard(csv, opts = {}) {
@@ -585,7 +777,7 @@ function boot() {
   function applySchooling(dt) {
     const sw = [];
     for (const c of state.creatures) {
-      if (c.state === 'alive' && c.klass !== 'rooted' && c.klass !== 'legacy') sw.push(c);
+      if (c.state === 'alive' && c.klass !== 'rooted' && c.klass !== 'legacy' && c.ctrl.behavior !== 'sleep') sw.push(c);
     }
     for (let i = 0; i < sw.length; i++) {
       for (let j = i + 1; j < sw.length; j++) {
@@ -607,7 +799,12 @@ function boot() {
           b.px += ux * push;
           b.py += uy * push;
           b.pz += uz * push;
-        } else if (a.spec.name && a.spec.name === b.spec.name && dist < 560) {
+        } else if (
+          dist < 560 &&
+          ((a.spec.name && a.spec.name === b.spec.name) ||
+            a.ctrl.behavior === 'school' ||
+            b.ctrl.behavior === 'school')
+        ) {
           const pull = 7 * dt;
           a.px += ux * pull;
           a.py += uy * pull;
@@ -620,39 +817,25 @@ function boot() {
     }
   }
 
-  // ---- boot mode: ?scene= (Phase B spike) > ?board= > #hash > default -----
+  // ---- boot mode flags (the load itself runs after controls exist, so the
+  // extended #hash schema can restore control values + preset) --------------
   const sceneParam = params.get('scene');
   const boardParam = params.get('board');
   const hashBoard = decodeURIComponent(location.hash.slice(1));
+
+  // ---- Bathyscaphe chrome (src/ui/*) mounts after the boot board exists
+  // (below). Spike-scene mode (?scene=) never mounts the UI and hides the
+  // static summon row so the Phase B screenshots stay pixel-clean.
   if (sceneParam) {
-    setScene(sceneParam);
-  } else if (boardParam) {
-    loadBoard(boardParam);
-  } else if (hashBoard.trim()) {
-    loadBoard(hashBoard);
-  } else {
-    loadBoard('jellyfish,kelp,eel');
+    const form = document.getElementById('summon');
+    if (form) form.style.display = 'none';
   }
 
-  // ---- summon input (temporary v2-style bare underline; Bathyscaphe chrome
-  // replaces this in Phase D) — hidden in spike-scene mode to keep the Phase
-  // B screenshots pixel-clean --------------------------------------------
-  const form = document.getElementById('summon');
-  const inp = document.getElementById('summon-input');
-  if (form && inp) {
-    if (sceneParam) form.style.display = 'none';
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const v = inp.value.trim();
-      if (v) {
-        spawnName(v);
-        inp.value = '';
-      }
-    });
-    document.addEventListener('keydown', (e) => {
-      if (document.activeElement !== inp && e.key.length === 1 && !e.metaKey && !e.ctrlKey) inp.focus();
-    });
-  }
+  // cursor world point at the z=0 plane (1:1 CSS px) — 'follow' behavior
+  window.addEventListener('pointermove', (e) => {
+    state.cursor.x = e.clientX - state.W / 2;
+    state.cursor.y = state.H / 2 - e.clientY;
+  });
 
   // ---- pipeline (created after creatures exist so compile() prewarms) -----
   // exposure trimmed 4.2 -> 3.4 so a 12-creature board glows without washing
@@ -662,6 +845,53 @@ function boot() {
     trailsK: parseFloatOr(params.get('trails'), 0.25),
   });
 
+  // ---- Phase D controls (engine-side plumbing; the UI codes against it) ---
+  controls = createControls({
+    state,
+    camera,
+    canvas,
+    getCamDist: () => camDist,
+    globalUniforms,
+    pipeline,
+    plankton,
+    spawnName,
+    releaseAll,
+    loadBoard,
+    saveHash,
+    requestSave,
+    hashBody,
+    setHashExtras: (fn) => {
+      hashExtrasFn = fn;
+    },
+  });
+
+  // ---- boot mode: ?scene= (Phase B spike) > ?board= > #hash > default -----
+  if (sceneParam) {
+    setScene(sceneParam);
+  } else if (boardParam) {
+    loadBoard(boardParam);
+  } else if (hashBoard.trim()) {
+    controls.restore(hashBoard); // extended schema; plain name lists still work
+  } else {
+    loadBoard('jellyfish,kelp,eel');
+  }
+
+  // ---- Bathyscaphe UI chrome (Phase D) — mounted ONCE, after the boot board
+  // is loaded so labels can seed its id->name registry from the serialized
+  // hash (and so the boot restore goes through the undecorated controls).
+  // Never mounted in spike-scene mode. Chrome stays hidden until the first
+  // rendered frame via body.booted (see chrome.css).
+  let ui = null;
+  if (!sceneParam) {
+    ui = {
+      labels: initLabels(controls), // decorates controls.summon/restore
+      summon: initSummon(controls),
+      plate: initPlate(controls),
+      rotary: initRotary(controls),
+      ambient: initAmbient(), // registers __menagerie.ui.forceAmbient
+    };
+  }
+
   function onResize() {
     const w = window.innerWidth || 1;
     const h = window.innerHeight || 1;
@@ -670,6 +900,7 @@ function boot() {
     updateCameraDistance(h);
     pipeline.resize(w, h);
     globalUniforms.uDpr.value = renderer.getPixelRatio();
+    globalUniforms.uFogScale.value = 540 / h; // presets viewport-invariant (tuned at 540)
   }
   window.addEventListener('resize', onResize);
   onResize();
@@ -694,9 +925,11 @@ function boot() {
   const nowMs = () => performance.now();
   const fixedStep = params.get('fixedstep') === '1';
   const stats = { lastFrameCpuMs: 0 };
+  let booted = false; // chrome is revealed after the first rendered frame
 
   function frame(dt) {
     const t0 = nowMs();
+    if (controls) controls.tick(dt); // preset crossfade, current, selection
     // staggered formation ramp: promote due pending spawns
     while (state.pending.length && state.pending[0].due <= state.simT) {
       const { spec } = state.pending.shift();
@@ -704,9 +937,10 @@ function boot() {
       state.creatures.push(c);
       scene.add(c.points);
     }
+    const sway = state.sway * (state.turbulence ?? 1);
     for (let i = state.creatures.length - 1; i >= 0; i--) {
       const c = state.creatures[i];
-      if (!c.update(state.simT, dt, state.sway)) {
+      if (!c.update(state.simT, dt, sway)) {
         scene.remove(c.points);
         c.dispose();
         state.creatures.splice(i, 1);
@@ -714,13 +948,22 @@ function boot() {
       }
     }
     if (state.boardMode) applySchooling(dt);
-    if (plankton.enabled) plankton.update(state.simT);
+    if (plankton.enabled) {
+      // plankton time-warp: the weather's current speeds the drift up
+      state.planktonT += dt * (state.planktonRate ?? 1);
+      plankton.update(state.planktonT);
+    }
+    if (hashDirtyT >= 0 && state.simT - hashDirtyT >= 0.3) saveHash();
     globalUniforms.uFocusZ.value = state.focus
       ? camDist - state.focus.points.position.z
       : state.boardMode
         ? camDist - Z_MID * 0.5
         : camDist;
     pipeline.render(dt, 0); // camera is stationary per-frame: camDeltaPx = 0
+    if (!booted) {
+      booted = true;
+      document.body.classList.add('booted'); // chrome surfaces after frame 1
+    }
     stats.lastFrameCpuMs = nowMs() - t0;
     updateHud();
   }
@@ -748,12 +991,17 @@ function boot() {
   }
 
   // ---- test surface -------------------------------------------------------
+  // spread preserves keys registered before this assignment (ambient.js
+  // attaches __menagerie.ui.forceAmbient at UI mount, above)
   window.__menagerie = {
+    ...(window.__menagerie || {}),
     rendererString: pipeline.info.rendererString,
     clock: { fixed: fixedStep, stepMany },
+    controls, // Phase D control API (the UI chrome's contract)
     test: {
       setScene,
       spawn: (name) => spawnName(name),
+      aliveCount, // alive + pending population (Phase D harness)
       board: (csv) => loadBoard(csv),
       solo: (name) => {
         releaseAll();

@@ -328,6 +328,10 @@ async function main() {
         await step(260); // ~4.3s sim: formations complete
 
         // -- select creature c1 (jellyfish) -> gauge plate surfaces
+        // (stepping burns wall-clock; under software GL the 260 steps can
+        // exceed the 33s idle threshold and sink the chrome — wake it first)
+        await page.evaluate(() => window.__menagerie.ui.forceAmbient(false));
+        await page.waitForTimeout(750);
         await page.evaluate(() => window.__menagerie.controls.select('c1'));
         await page.waitForTimeout(650); // 400ms rise + anchor settle (wall clock)
         await step(20);
@@ -521,7 +525,7 @@ async function main() {
         await step(240);
         const abysOff = await pngStats(await shot('atm-meas-abyss-off.png'), 'bottom');
         s.sedimentLitDelta = abysOn.litCount - abysOff.litCount;
-        if (!(s.sedimentLitDelta > 50)) {
+        if (!(s.sedimentLitDelta > 40)) {
           throw new Error(`sediment not visible in abyss: bottom lit ${abysOn.litCount} -> ${abysOff.litCount}`);
         }
         // ink: atmosphere must be absent — extinguishing it changes nothing

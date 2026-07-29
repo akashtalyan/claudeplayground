@@ -113,7 +113,9 @@ void main() {
 
 // Base emitted intensity at setIntensity(1). Deliberately faint: with the
 // app's ~3.4 exposure this reads as a suggestion of light, not a beam.
-const BASE_ALPHA = 0.05;
+// (Integrator tuning 0.05 → 0.07: at 0.05 the moonlit preset's 0.6 intensity
+// × gain 1.0 fell below one sRGB step — shafts existed only in shallows.)
+const BASE_ALPHA = 0.07;
 
 export function create( scene, globalUniforms, opts = {} ) {
 
@@ -149,16 +151,22 @@ export function create( scene, globalUniforms, opts = {} ) {
 	const aRand = new Float32Array( n * 2 );
 
 	function fillAttributes() {
-		// Shafts live in a mid-depth band behind most creatures; anchors start
-		// above the top edge so they enter the frame already formed.
+		// Shafts live in a mid-depth band behind most creatures. All dimensions
+		// are authored in CSS px and scaled by (camDist − z)/camDist to world px
+		// at the shaft's own depth (the app's 1:1 plane is z=0), so the anchor
+		// sits above the visible frame at EVERY depth — otherwise a far shaft's
+		// hard top edge (v=0, full brightness) cuts across the upper frame.
+		// camDist derives from the CURRENT height exactly like main.js
+		// (camDist = cssH/2/tan(FOV/2), FOV 55), so resize stays correct.
+		const camDist = height / 2 / Math.tan( ( 55 * Math.PI ) / 360 );
 		for ( let i = 0; i < K; i++ ) {
 			const s = shafts[ i ];
 			const z = -300 + s.zFrac * 190; // -300 .. -110
-			const vd = 1 + -z / 900; // mild parallax spread for far shafts
+			const vd = ( camDist - z ) / camDist; // CSS px -> world px at depth z
 			const ax = s.xFrac * ( width + 260 ) * vd;
-			const ay = height / 2 + 60;
-			const len = s.lenFrac * height + 120;
-			const hw = s.wFrac * ( width + 200 );
+			const ay = ( height / 2 + 40 ) * vd;
+			const len = ( s.lenFrac * height + 120 ) * vd;
+			const hw = s.wFrac * ( width + 200 ) * vd;
 			for ( let c = 0; c < VPS; c++ ) {
 				const k = i * VPS + c;
 				aAnchor[ k * 3 ] = ax;
@@ -206,6 +214,11 @@ export function create( scene, globalUniforms, opts = {} ) {
 		depthWrite: false,
 		depthTest: false,
 		toneMapped: false,
+		// Integrator fix: the quad winding depends on the light azimuth (axis is
+		// derived from uLightDir per-frame), so one-sided culling silently drops
+		// every shaft for half the light directions. Shafts are pure emitted
+		// light — render both faces.
+		side: THREE.DoubleSide,
 	} );
 
 	const mesh = new THREE.Mesh( geometry, material );

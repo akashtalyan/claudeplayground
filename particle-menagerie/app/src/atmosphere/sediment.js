@@ -20,7 +20,10 @@ import { createDotMaterial } from '../shaders/dots.js';
 // Must match REF_DIST in shaders/dots.js: px = aSize * REF_DIST / viewDist.
 const REF_DIST = 10;
 const TAU = Math.PI * 2;
-const BASE_ALPHA = 0.3; // dim — well under the plankton's 0.4
+// Integrator tuning: 0.3 → 0.55 — at 0.3 the motes vanished entirely under
+// the abyss preset's heavy fog; still comfortably dimmer than a creature dot
+// (presets run this at 0.3-0.55 intensity in the lit weathers).
+const BASE_ALPHA = 0.55;
 
 export function create( scene, globalUniforms, opts = {} ) {
 
@@ -59,7 +62,10 @@ export function create( scene, globalUniforms, opts = {} ) {
 		wrate[ i ] = 0.05 + 0.09 * rng();
 		ph[ i ] = rng() * TAU;
 		curF[ i ] = 0.4 + 0.8 * rng();
-		bz[ i ] = zMin + rng() * ( zMax - zMin );
+		// near-camera bias (integrator tuning — pure remap of the same draw):
+		// snow drifting close to the lens survives heavy weather fog, and the
+		// exponential falloff was erasing the uniform-depth motes wholesale.
+		bz[ i ] = zMin + Math.pow( rng(), 0.7 ) * ( zMax - zMin );
 	}
 	// ---- end frozen draw order (attribute draws below also frozen) ----
 
@@ -78,9 +84,11 @@ export function create( scene, globalUniforms, opts = {} ) {
 		nor[ i * 3 ] = nx * il;
 		nor[ i * 3 + 1 ] = ny * il;
 		nor[ i * 3 + 2 ] = nz * il;
-		// tiny: 0.8-1.7 CSS px at this mote's depth
+		// tiny: 1.2-2.4 CSS px at this mote's depth (integrator tuning: was
+		// 0.8-1.7, but the sub-1.5-device-px fade in the dot shader was erasing
+		// most of the layer — marine snow should be faint, not absent)
 		const vd = ( camDist - bz[ i ] ) / REF_DIST;
-		aSize[ i ] = ( 0.8 + 0.9 * rng() ) * vd;
+		aSize[ i ] = ( 1.2 + 1.2 * rng() ) * vd;
 		aTw[ i ] = rng();
 		aRing[ i ] = rng();
 	}

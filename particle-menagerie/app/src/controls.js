@@ -77,7 +77,7 @@ export const PRESETS = {
     lightDir: [-0.45, 0.75, 0.4], lightColor: [0.8, 0.94, 1.05], rim: 1.25,
     fogDensity: 0.0015, fogTint: [1, 1, 1], gain: 1.0, trailsK: 0.25,
     current: 0, turbulence: 1, planktonAlpha: 0.4,
-    caustics: 0.55, sediment: 0.55, ao: 0.7, bloom: 0.35,
+    caustics: 0.6, sediment: 0.55, ao: 0.7, bloom: 0.35,
   },
   // near-lightless, heavy red-absorbing fog, long trails; no shafts reach
   // this deep — dense silt instead, bloom held low

@@ -11,6 +11,7 @@ import {
 	computeFadeK,
 	clamp01k,
 } from './trails.js';
+import { Bloom } from './bloom.js';
 
 // OutputPass-equivalent. ACESFilmicToneMapping / RRTAndODTFit / LinearTosRGB
 // bodies match three r185 (ShaderChunk tonemapping_pars_fragment +
@@ -18,6 +19,8 @@ import {
 const OUTPUT_FRAG = /* glsl */ `
 precision highp float;
 uniform sampler2D tInput;
+uniform sampler2D tBloom;
+uniform float uBloomStrength;
 uniform float uExposure;
 varying vec2 vUv;
 
@@ -51,6 +54,9 @@ vec3 linearToSRGB( vec3 c ) {
 
 void main() {
 	vec3 color = texture2D( tInput, vUv ).rgb;
+	// Bloom (frame-graph [4]) is added in LINEAR light, upstream of the single
+	// tonemap below — never encoded separately.
+	color += texture2D( tBloom, vUv ).rgb * uBloomStrength;
 	color = ACESFilmicToneMapping( color );
 	gl_FragColor = vec4( linearToSRGB( color ), 1.0 );
 }
@@ -88,9 +94,23 @@ export function createPipeline( renderer, scene, camera, opts = {} ) {
 	const sceneRT = makeHalfFloatTarget( 1, 1 );
 	const trails = new Trails( 1, 1 );
 
+	// Bloom (frame-graph [4]): half-res bright+blur between trails and the
+	// final pass. strength 0 skips its passes entirely; tBloom then reads this
+	// 1x1 black so the composite is a mathematical no-op.
+	const bloom = new Bloom();
+	const bloomParams = {
+		strength: opts.bloom?.strength ?? 0.35,
+		threshold: opts.bloom?.threshold ?? 0.55,
+		radius: opts.bloom?.radius ?? 0.4,
+	};
+	const blackTexture = new THREE.DataTexture( new Uint8Array( [ 0, 0, 0, 255 ] ), 1, 1 );
+	blackTexture.needsUpdate = true;
+
 	const outputMaterial = new THREE.ShaderMaterial( {
 		uniforms: {
 			tInput: { value: null },
+			tBloom: { value: blackTexture },
+			uBloomStrength: { value: 0 },
 			uExposure: { value: opts.exposure ?? 1.0 },
 		},
 		vertexShader: FS_VERT,
@@ -112,6 +132,7 @@ export function createPipeline( renderer, scene, camera, opts = {} ) {
 		renderer.getDrawingBufferSize( drawingBufferSize );
 		sceneRT.setSize( drawingBufferSize.x, drawingBufferSize.y );
 		trails.setSize( drawingBufferSize.x, drawingBufferSize.y );
+		bloom.setSize( drawingBufferSize.x, drawingBufferSize.y ); // half-res inside
 		if ( camera.isPerspectiveCamera ) {
 			camera.aspect = cssW / Math.max( 1, cssH );
 			camera.updateProjectionMatrix();
@@ -131,6 +152,7 @@ export function createPipeline( renderer, scene, camera, opts = {} ) {
 	renderer.compile( scene, camera );
 	renderer.compile( trails.pass.scene, trails.pass.camera );
 	renderer.compile( outputPass.scene, outputPass.camera );
+	bloom.prewarm( renderer );
 
 	function composite() {
 		outputMaterial.uniforms.tInput.value = trails.output;
@@ -144,12 +166,32 @@ export function createPipeline( renderer, scene, camera, opts = {} ) {
 		renderer.clear();
 		renderer.render( scene, camera );
 		trails.accumulate( renderer, sceneRT.texture, fadeK );
+		const u = outputMaterial.uniforms;
+		if ( bloomParams.strength > 0 ) {
+			bloom.render( renderer, trails.output, bloomParams );
+			u.tBloom.value = bloom.output;
+			u.uBloomStrength.value = bloomParams.strength;
+		} else {
+			// pass entirely skipped: zero bloom cost
+			u.tBloom.value = blackTexture;
+			u.uBloomStrength.value = 0;
+		}
 		composite();
 		renderer.setRenderTarget( null );
 	}
 
 	function setTrails( k ) {
 		trailsK = clamp01k( k );
+	}
+
+	function setBloom( { strength, threshold, radius } = {} ) {
+		if ( strength !== undefined ) bloomParams.strength = Math.max( 0, strength );
+		if ( threshold !== undefined ) bloomParams.threshold = Math.max( 0, threshold );
+		if ( radius !== undefined ) bloomParams.radius = Math.min( Math.max( radius, 0 ), 1 );
+	}
+
+	function getBloom() {
+		return { ...bloomParams };
 	}
 
 	function setRenderScale( s ) {
@@ -178,6 +220,8 @@ export function createPipeline( renderer, scene, camera, opts = {} ) {
 	return {
 		render,
 		setTrails,
+		setBloom,
+		getBloom,
 		resize,
 		setRenderScale,
 		snapshot,

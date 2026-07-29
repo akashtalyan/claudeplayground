@@ -217,8 +217,18 @@ async function main() {
         if (!s.pass) console.error(`pileup blowout: ${(stats.blownFrac * 100).toFixed(2)}% pixels fully white (bound 8%)`);
       });
 
-      // ---- 8. soak: trails must reach black ------------------------------
+      // ---- 8. soak: trails must decay back to the empty-water baseline ----
+      // (The scene has a night-ocean background, so "black" is really the
+      // background itself: assert the decayed frame matches a creature-free
+      // baseline of the same scene, not absolute zero.)
       await scenario('soak', async (s) => {
+        await load('fixedstep=1&scene=eel');
+        await page.evaluate(() => {
+          window.__menagerie.test.setTrails(0.99);
+          window.__menagerie.test.releaseAll();
+        });
+        await step(600); // settle trails onto pure background
+        const baseBuf = await shot('soak-baseline.png');
         await load('fixedstep=1&scene=eel');
         await page.evaluate(() => {
           window.__menagerie.test.setSway(0);
@@ -230,10 +240,12 @@ async function main() {
         await step(600); // 10s sim-time decay
         const buf = await shot('soak-decayed.png');
         const stats = await pngStats(buf, 'central');
+        const baseStats = await pngStats(baseBuf, 'central');
         s.maxCentralChannelAfterDecay = stats.maxChannel;
+        s.baselineMaxChannel = baseStats.maxChannel;
         s.bound = 6;
-        s.pass = stats.maxChannel <= 6;
-        if (!s.pass) console.error(`soak: central pixel channel ${stats.maxChannel}/255 after decay (bound 6) — trails did not reach black`);
+        s.pass = stats.maxChannel - baseStats.maxChannel <= 6;
+        if (!s.pass) console.error(`soak: central channel ${stats.maxChannel}/255 vs baseline ${baseStats.maxChannel}/255 after decay (bound +6) — trails did not decay to background`);
       });
 
       // ---- 9. Phase C sweep: 12-creature board, all 9 archetypes ---------

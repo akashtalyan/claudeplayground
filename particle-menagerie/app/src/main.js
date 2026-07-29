@@ -13,11 +13,14 @@ import { mulberry32, hashName } from './geometry/rng.js';
 import { REGISTRY } from './creatures.js';
 import { resolveName, colorFromHue } from './lexicon.js';
 import { createControls, defaultCtrl } from './controls.js';
+import { createBackground } from './background.js';
 import { initSummon } from './ui/summon.js';
 import { initPlate } from './ui/plate.js';
 import { initRotary } from './ui/rotary.js';
 import { initAmbient } from './ui/ambient.js';
 import { initLabels } from './ui/labels.js';
+import { initFeeding } from './feeding.js';
+import { initCapture } from './capture.js';
 
 const REF_DIST = 10; // must match REF_DIST in shaders/dots.js
 const FOV = 55;
@@ -64,6 +67,7 @@ function boot() {
   updateCameraDistance(window.innerHeight || 540);
 
   const scene = new THREE.Scene();
+  const background = createBackground(scene);
 
   // ---- global lighting / medium: cool abyssal water -----------------------
   // (tuning pass: monochrome-by-default cool-cyan cast — light is a cold
@@ -95,6 +99,8 @@ function boot() {
   };
   let nextId = 1; // creature ids ('c1', 'c2', ...) for the controls API
   let controls = null; // assigned after the pipeline exists
+  let feeding = null; // Phase E mote (assigned with the UI, board mode only)
+  let capture = null; // Phase E snapshot/record I/O (board mode only)
 
   function parseFloatOr(v, d) {
     const f = parseFloat(v);
@@ -241,6 +247,9 @@ function boot() {
       // Phase D behavior modes ('drift' and 'school' keep the class motion;
       // schooling attraction for 'school' lives in applySchooling)
       if (b === 'sleep') return this.applySleep(t, dt);
+      // Phase E: a dropped mote temporarily overrides swimmer motion (checked
+      // after sleep so sleepers never wake; behavior itself is untouched)
+      if (feeding && feeding.overrideMotion(this, t, dt)) return;
       if (b === 'patrol') return this.applyPatrol(t, dt);
       if (b === 'follow') return this.applyFollow(t, dt);
       if (this.klass === 'drifter') {
@@ -890,6 +899,18 @@ function boot() {
       rotary: initRotary(controls),
       ambient: initAmbient(), // registers __menagerie.ui.forceAmbient
     };
+    // ---- Phase E: feeding mote + snapshot/record (board mode only; spike
+    // scenes stay pixel-clean and listener-free). Empty-water clicks are
+    // told apart from creature clicks via controls' own hit-test.
+    feeding = initFeeding({
+      scene,
+      canvas,
+      state,
+      getCamDist: () => camDist,
+      globalUniforms,
+      hitTest: (x, y) => controls.hitTest(x, y),
+    });
+    capture = initCapture(canvas, pipeline);
   }
 
   function onResize() {
@@ -929,7 +950,9 @@ function boot() {
 
   function frame(dt) {
     const t0 = nowMs();
+    background.update(state.simT);
     if (controls) controls.tick(dt); // preset crossfade, current, selection
+    if (feeding) feeding.tick(state.simT, dt); // Phase E mote (injectable clock)
     // staggered formation ramp: promote due pending spawns
     while (state.pending.length && state.pending[0].due <= state.simT) {
       const { spec } = state.pending.shift();
@@ -998,6 +1021,8 @@ function boot() {
     rendererString: pipeline.info.rendererString,
     clock: { fixed: fixedStep, stepMany },
     controls, // Phase D control API (the UI chrome's contract)
+    feeding, // Phase E mote (null in spike scenes): drop(x,y) / getMote()
+    capture, // Phase E I/O (null in spike scenes): snapshotPNG / toggleRecording
     test: {
       setScene,
       spawn: (name) => spawnName(name),

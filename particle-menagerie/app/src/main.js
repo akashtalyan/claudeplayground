@@ -22,6 +22,7 @@ import { initAmbient } from './ui/ambient.js';
 import { initLabels } from './ui/labels.js';
 import { initFeeding } from './feeding.js';
 import { initCapture } from './capture.js';
+import { createGovernor } from './governor.js';
 
 const REF_DIST = 10; // must match REF_DIST in shaders/dots.js
 const FOV = 55;
@@ -98,8 +99,10 @@ function boot() {
     current: 0, // px/s lateral drift (weather presets; atmosphere reads it)
     planktonRate: 1, // plankton time-warp (weather current)
     planktonT: 0,
+    govDensity: 1, // Phase F governor lever 4 — render-fraction ONLY (drawRange)
   };
   let nextId = 1; // creature ids ('c1', 'c2', ...) for the controls API
+  let maxAlive = MAXC; // Phase F governor lever 5 (14 -> 10)
   let controls = null; // assigned after the pipeline exists
   let feeding = null; // Phase E mote (assigned with the UI, board mode only)
   let capture = null; // Phase E snapshot/record I/O (board mode only)
@@ -137,6 +140,11 @@ function boot() {
       const viewDist0 = camDist - spec.base[2];
       const sizeScale = (spec.dotPx * viewDist0) / REF_DIST;
       for (let i = 0; i < n; i++) aSize[i] *= sizeScale;
+      // Phase F small-creature merge correction (shaders/dots.js uSmall):
+      // because aSize is normalized to spawn depth above while dot spacing
+      // scales with the creature, the overlap ratio relative to the
+      // archetype's tuned default is exactly this constant / worldScale.
+      this.smallBase = (entry.scale * viewDist0) / camDist;
 
       // formation start: scattered cloud in local space, random normals; the
       // shared easing pulls both toward targets while uFormation ramps.
@@ -192,8 +200,13 @@ function boot() {
       // default twinkle 1 -> uTwk (2.1, 0.4), byte-identical to Phase C
       u.uTwk.value.set(2.1 * Math.max(this.ctrl.twinkle, 0.15), 0.4 * this.ctrl.twinkle);
       u.uIrid.value = this.ctrl.iridescence;
-      const frac = this.spec.drawFrac * this.ctrl.density;
+      // state.govDensity is the governor's lever 4 (1 -> 0.5): still drawRange
+      // over the same build-time shuffle — build counts NEVER change
+      const frac = this.spec.drawFrac * this.ctrl.density * state.govDensity;
       this.geometry.setDrawRange(0, Math.max(1, Math.floor(this.gen.count * frac)));
+      // merge correction tracks render density: fewer rendered dots = sqrt(frac)
+      // wider effective spacing = proportionally less overlap to conserve
+      u.uSmall.value = this.smallBase * Math.sqrt(frac);
     }
 
     // re-form: scatter back to a cloud and replay the formation ramp
@@ -604,8 +617,9 @@ function boot() {
     if (!res.name) return null;
     state.boardMode = true;
     const n = Math.min(res.count, 6);
-    // over cap: disperse oldest alive (v2 rule)
-    for (let over = aliveCount() + n - MAXC; over > 0; over--) {
+    // over cap: disperse oldest alive (v2 rule; maxAlive = MAXC unless the
+    // governor's lever 5 has lowered it)
+    for (let over = aliveCount() + n - maxAlive; over > 0; over--) {
       const oldest = state.creatures.find((c) => c.state === 'alive');
       if (!oldest) break;
       oldest.disperse();
@@ -791,6 +805,7 @@ function boot() {
   // two small shaders with everything else. Layer intensities boot at the
   // moonlit preset (the default weather); controls.applyScene drives them on
   // every preset crossfade thereafter.
+  const rootedScratch = []; // reused every frame — ao.js reads it synchronously
   const atmosphere = plankton.enabled
     ? createAtmosphere(scene, globalUniforms, {
         seed: 0x0a7305fe,
@@ -798,7 +813,11 @@ function boot() {
         height: state.H,
         camDist,
         zRange: [Z_MIN, Z_MAX],
-        getRooted: () => state.creatures.filter((c) => c.klass === 'rooted'),
+        getRooted: () => {
+          rootedScratch.length = 0;
+          for (const c of state.creatures) if (c.klass === 'rooted') rootedScratch.push(c);
+          return rootedScratch;
+        },
       })
     : null;
   if (atmosphere) {
@@ -941,6 +960,67 @@ function boot() {
     capture = initCapture(canvas, pipeline);
   }
 
+  // ---- Phase F adaptive quality governor (F2 ladder — src/governor.js) ----
+  // Hard-off under ?fixedstep=1 (harness contract: screenshots must never
+  // show a degraded scene, and SwiftShader wall time would instantly floor
+  // every lever) or ?governor=off; telemetry.reason says which.
+  const fixedStep = params.get('fixedstep') === '1';
+  const govOffParam = params.get('governor') === 'off';
+  // Levers 1+2 share the pipeline's one backing-size input: backing =
+  // css x min(dpr, dprCap) x renderScale, expressed through setRenderScale
+  // (which still enforces the spec's 0.5 renderScale floor). On dpr <= 1
+  // screens the DPR-cap lever is correctly a no-op.
+  let govScale = 1;
+  let govDprCap = 1.5;
+  let govSprite = 1;
+  const glMaxPointPx = globalUniforms.uMaxPointPx.value; // GL cap, queried at boot
+  function applyGovSprite() {
+    // lever 3: 30% off the effective app sprite cap (APP_CAP_PX = 32 CSS px in
+    // shaders/dots.js, x uDpr device ratio), never above the GL-queried max
+    globalUniforms.uMaxPointPx.value =
+      govSprite >= 1 ? glMaxPointPx : Math.min(32 * globalUniforms.uDpr.value, glMaxPointPx) * govSprite;
+  }
+  function applyGovBacking() {
+    const dpr = window.devicePixelRatio || 1;
+    pipeline.setRenderScale(govScale * (Math.min(dpr, govDprCap) / Math.min(dpr, 1.5)));
+    globalUniforms.uDpr.value = renderer.getPixelRatio();
+    applyGovSprite(); // the sprite cap is in device px — track the ratio change
+  }
+  const governor = createGovernor({
+    off: fixedStep || govOffParam,
+    reason: govOffParam ? 'governor=off' : fixedStep ? 'fixedstep' : null,
+    hooks: {
+      renderScale: (v) => {
+        govScale = v;
+        applyGovBacking();
+      },
+      dprCap: (v) => {
+        govDprCap = v;
+        applyGovBacking();
+      },
+      spriteCap: (v) => {
+        govSprite = v;
+        applyGovSprite();
+      },
+      density: (v) => {
+        // lever 4 — render-fraction ONLY (drawRange over the cross-ring
+        // shuffle, applied inside applyCtrlVisual; geometry is never rebuilt)
+        state.govDensity = v;
+        for (const c of state.creatures) c.applyCtrlVisual();
+      },
+      creatureCap: (v) => {
+        // lever 5 — cap 14 -> 10; oldest alive disperse (v2 rule). Releasing
+        // back to 14 only raises the allowance; nothing respawns.
+        maxAlive = v;
+        for (let over = aliveCount() - v; over > 0; over--) {
+          const oldest = state.creatures.find((c) => c.state === 'alive');
+          if (!oldest) break;
+          oldest.disperse();
+        }
+      },
+    },
+  });
+
   function onResize() {
     const w = window.innerWidth || 1;
     const h = window.innerHeight || 1;
@@ -950,6 +1030,7 @@ function boot() {
     pipeline.resize(w, h);
     if (atmosphere) atmosphere.resize(w, h);
     globalUniforms.uDpr.value = renderer.getPixelRatio();
+    applyGovSprite(); // governor sprite cap is in device px — track uDpr
     globalUniforms.uFogScale.value = 540 / h; // presets viewport-invariant (tuned at 540)
   }
   window.addEventListener('resize', onResize);
@@ -966,14 +1047,20 @@ function boot() {
   }
   function updateHud() {
     if (!hudEl) return;
+    const g = governor.telemetry;
+    const gov = g.off
+      ? `gov OFF (${g.reason})`
+      : `gov L${g.level}${g.engaged.length ? ' [' + g.engaged.join(',') + ']' : ''}`;
     hudEl.textContent =
       `${stats.lastFrameCpuMs.toFixed(2)} ms cpu  ` +
-      `${state.creatures.length} creatures\n${pipeline.info.rendererString}`;
+      `${state.creatures.length} creatures\n` +
+      `${gov}  p50 ${g.framesMsP50.toFixed(1)} ms\n` +
+      pipeline.info.rendererString;
   }
 
   // ---- clock (frame-graph rule 11: the ONE place wall time is read) -------
+  // (fixedStep itself is declared with the governor above, which needs it)
   const nowMs = () => performance.now();
-  const fixedStep = params.get('fixedstep') === '1';
   const stats = { lastFrameCpuMs: 0 };
   let booted = false; // chrome is revealed after the first rendered frame
 
@@ -1034,10 +1121,14 @@ function boot() {
     let prev = nowMs();
     const tick = () => {
       const t = nowMs();
-      const dt = Math.min((t - prev) / 1000, 0.05);
+      const rawMs = t - prev; // REAL frame delta — the governor's evidence
       prev = t;
+      const dt = Math.min(rawMs / 1000, 0.05);
       state.simT += dt;
       frame(dt);
+      // presentation-time telemetry + F2 ladder; values are handed in so the
+      // wall clock is still read in exactly one place (rule 11)
+      governor.tick(rawMs, t);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -1056,6 +1147,10 @@ function boot() {
     feeding, // Phase E mote (null in spike scenes): drop(x,y) / getMote()
     capture, // Phase E I/O (null in spike scenes): snapshotPNG / toggleRecording
     atmosphere, // Phase E layers (null in spike scenes): caustics/sediment/ao
+    // Phase F telemetry (live object, mutated in place): {level, framesMsP50,
+    // engaged:[...], off, reason} — off===true (reason 'fixedstep' or
+    // 'governor=off') means no lever can ever move this session
+    governor: governor.telemetry,
     test: {
       setScene,
       spawn: (name) => spawnName(name),
@@ -1077,6 +1172,9 @@ function boot() {
         plankton.points.material.uniforms.uAlpha.value = alpha;
       },
       setTrails: (k) => pipeline.setTrails(k),
+      // dev/harness lever check: walks the real F2 ladder to level n,
+      // bypassing hysteresis (explicit call only — never fires on its own)
+      setGovernorLevel: (n) => governor.force(n),
       releaseAll,
       setCameraYaw: (rad) => {
         camYaw = rad;

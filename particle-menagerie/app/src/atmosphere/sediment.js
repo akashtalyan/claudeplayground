@@ -34,11 +34,13 @@ export function create( scene, globalUniforms, opts = {} ) {
 	const [ zMin, zMax ] = opts.zRange ?? [ -340, 40 ]; // main.js water volume
 	// camDist only calibrates on-screen dot size (1:1 CSS-px plane at z=0);
 	// default replicates main.js: camDist = (cssH/2)/tan(FOV/2), FOV 55.
-	const camDist = opts.camDist ?? height / 2 / Math.tan( ( 55 * Math.PI ) / 360 );
+	// All four extents are lets: resize() rescales them (and the band data)
+	// deterministically — the mote field is never rebuilt.
+	let camDist = opts.camDist ?? height / 2 / Math.tan( ( 55 * Math.PI ) / 360 );
 
-	const hw = width / 2 + 120;
-	const hh = height / 2 + 60;
-	const spanY = hh * 2;
+	let hw = width / 2 + 120;
+	let hh = height / 2 + 60;
+	let spanY = hh * 2;
 
 	// ---- frozen draw order: per-mote block, append only ----
 	const rng = mulberry32( seed );
@@ -95,9 +97,10 @@ export function create( scene, globalUniforms, opts = {} ) {
 
 	const geometry = new THREE.BufferGeometry();
 	const posAttr = new THREE.BufferAttribute( pos, 3 ).setUsage( THREE.DynamicDrawUsage );
+	const sizeAttr = new THREE.BufferAttribute( aSize, 1 );
 	geometry.setAttribute( 'position', posAttr );
 	geometry.setAttribute( 'normal', new THREE.BufferAttribute( nor, 3 ) );
-	geometry.setAttribute( 'aSize', new THREE.BufferAttribute( aSize, 1 ) );
+	geometry.setAttribute( 'aSize', sizeAttr );
 	geometry.setAttribute( 'aTw', new THREE.BufferAttribute( aTw, 1 ) );
 	geometry.setAttribute( 'aRing', new THREE.BufferAttribute( aRing, 1 ) );
 
@@ -145,6 +148,31 @@ export function create( scene, globalUniforms, opts = {} ) {
 	}
 	update( 0 );
 
+	// Resize: rescale extents + band data in place (deterministic — a pure
+	// function of the new CSS size; NO rng draws, no rebuild, mote count
+	// untouched). bx/bandTop scale with the water volume so the field keeps
+	// covering the viewport; aSize rescales by the view-distance ratio so each
+	// mote keeps its authored CSS-px size under the new camDist.
+	function resize( w, h ) {
+		const newHw = Math.max( 1, w ) / 2 + 120;
+		const newHh = Math.max( 1, h ) / 2 + 60;
+		const newSpan = newHh * 2;
+		const newCamDist = Math.max( 1, h ) / 2 / Math.tan( ( 55 * Math.PI ) / 360 );
+		const sx = newHw / hw;
+		const sBand = newSpan / spanY;
+		for ( let i = 0; i < N; i++ ) {
+			bx[ i ] *= sx;
+			bandTop[ i ] *= sBand;
+			aSize[ i ] *= ( newCamDist - bz[ i ] ) / Math.max( camDist - bz[ i ], 1e-3 );
+		}
+		sizeAttr.needsUpdate = true;
+		hw = newHw;
+		hh = newHh;
+		spanY = newSpan;
+		camDist = newCamDist;
+		update( lastT, 0 ); // reproject positions into the new extents now
+	}
+
 	function setIntensity( v ) {
 		intensity = Math.min( Math.max( v, 0 ), 1 );
 		material.uniforms.uAlpha.value = BASE_ALPHA * intensity;
@@ -156,7 +184,7 @@ export function create( scene, globalUniforms, opts = {} ) {
 		material.dispose();
 	}
 
-	return { update, setIntensity, dispose, getIntensity: () => intensity };
+	return { update, setIntensity, resize, dispose, getIntensity: () => intensity };
 }
 
 export const createSediment = create;

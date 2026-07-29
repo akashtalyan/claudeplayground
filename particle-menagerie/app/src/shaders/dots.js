@@ -26,6 +26,7 @@ uniform float uFocusZ;
 uniform float uAperture;
 uniform float uDpr;
 uniform float uMaxPointPx;
+uniform float uSmall;
 
 attribute float aSize;
 attribute float aTw;
@@ -34,10 +35,22 @@ attribute float aRing;
 varying vec3 vColor;
 varying float vAlphaExtra;
 varying float vTw;
+varying float vMerge;
 
 const float APP_CAP_PX = ${APP_CAP_PX.toFixed( 1 )};
 // Distance (view units) at which a dot renders at exactly aSize CSS px.
 const float REF_DIST = 10.0;
+// Small-creature merge correction (Phase F). Dot px size is normalized per
+// archetype at spawn while dot spacing scales with the creature, so the
+// projected dot-size : dot-spacing ratio relative to the archetype's tuned
+// default reduces exactly to uSmall / worldScale (uSmall = refScale x
+// spawnViewDist / camDist, set per creature; 0 disables — plankton, sediment,
+// the feeding mote). Below MERGE_FREE x default the look is untouched;
+// beyond it dots overlap, so per-dot alpha divides by merge^2 (the overlap
+// count grows as merge^2) — energy conservation: total brightness must not
+// grow as dots merge, or small creatures bloom into solid white comets.
+const float MERGE_FREE = 1.35;
+const float MERGE_MAX = 3.2;
 // Wrap-around Lambert softness: light bleeds past the terminator so a
 // dotted shell reads as a soft organic form, not a hard-lit ball.
 const float WRAP = 0.5;
@@ -64,6 +77,18 @@ void main() {
 	// Sub-1.5-device-px fade uses the UNCLAMPED size so the 1px floor never
 	// brightens distant dots (rule 8), times the DOF 1/k^2 (rule 10).
 	vAlphaExtra = smoothstep( 0.0, 1.5, px ) / ( k * k );
+
+	// Small-creature merge correction (see MERGE_FREE above). worldScale is
+	// the model matrix's uniform scale (view is rigid), so the size slider and
+	// eased size morphs track automatically. merge == 1.0 exactly for every
+	// creature at or above MERGE_FREE x its tuned default — large creatures
+	// are provably untouched.
+	float ws = length( modelViewMatrix[ 0 ].xyz );
+	float merge = uSmall > 0.0
+		? clamp( uSmall / ( ws * MERGE_FREE ), 1.0, MERGE_MAX )
+		: 1.0;
+	vAlphaExtra /= merge * merge;
+	vMerge = merge - 1.0;
 
 	// Normals arrive eased (same coefficient as position, geometry spec) and
 	// therefore non-unit: renormalize in-shader, with a degenerate-length guard.
@@ -117,6 +142,7 @@ uniform vec2 uTwk;
 varying vec3 vColor;
 varying float vAlphaExtra;
 varying float vTw;
+varying float vMerge;
 
 void main() {
 
@@ -127,8 +153,12 @@ void main() {
 	// inscribed circle so the square sprite corner never shows under additive.
 	// Halo raised 0.30/-4.0 -> 0.55/-3.2 (Phase C tuning): more bioluminescent
 	// bleed around each dot; overall energy rebalanced via pipeline exposure.
+	// Phase F: merged dots (vMerge > 0, small creatures) tighten the halo —
+	// the wide skirt is what floods the gaps between overlapping dots and
+	// defeats the dotted-rib identity; vMerge is 0 for everything at or above
+	// its archetype's tuned default size, so large creatures keep the skirt.
 	float core = exp( -d2 * 12.0 );
-	float halo = 0.55 * exp( -d2 * 3.2 ) * clamp( 1.0 - d2, 0.0, 1.0 );
+	float halo = 0.55 * exp( -d2 * ( 3.2 + 2.4 * vMerge ) ) * clamp( 1.0 - d2, 0.0, 1.0 );
 
 	// Twinkle rate/depth from uTwk (Phase D); the default (2.1, 0.4) reduces to
 	// exactly the Phase C constant 0.80 + 0.20 * sin( uTime * 2.1 + vTw ).
@@ -179,11 +209,16 @@ export function createDotMaterial( globalUniforms ) {
 			uFormation: { value: 1.0 },
 			uTwk: { value: new THREE.Vector2( 2.1, 0.4 ) },
 			uIrid: { value: 0.0 },
+			// merge-correction reference (see VERT): refScale x spawnViewDist /
+			// camDist, set by the creature integrator; 0 = correction off (the
+			// default — plankton, sediment, and the feeding mote stay untouched)
+			uSmall: { value: 0.0 },
 			// global — same object references across all materials, on purpose
 			uLightDir: globalUniforms.uLightDir,
 			uLightColor: globalUniforms.uLightColor,
 			uRim: globalUniforms.uRim,
 			uFogDensity: globalUniforms.uFogDensity,
+			uFogScale: globalUniforms.uFogScale,
 			uFogTint: globalUniforms.uFogTint,
 			uGain: globalUniforms.uGain,
 			uFocusZ: globalUniforms.uFocusZ,

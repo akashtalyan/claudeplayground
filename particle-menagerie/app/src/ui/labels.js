@@ -119,14 +119,18 @@ export function initLabels(controls) {
   // ---- hover tracking ------------------------------------------------------
   const pxy = { x: -1e5, y: -1e5 };
   let overChrome = false;
+  let moved = false; // hitTest runs only after a pointermove — idle rAFs reuse
+  let lastPick = null; //   the cached pick instead of re-picking every frame
   const onMove = (e) => {
     pxy.x = e.clientX;
     pxy.y = e.clientY;
     const t = e.target;
     overChrome = !!(t && t.closest && t.closest('#plate, #summon, #rotary'));
+    moved = true;
   };
   window.addEventListener('pointermove', onMove, { passive: true });
 
+  const anchorScratch = { x: 0, y: 0, radiusPx: 0 }; // screenAnchor out target
   let hoverId = null; // creature the label element is bound to
   let effWant = null; // debounced hover target (see below)
   let candidate = null;
@@ -160,11 +164,17 @@ export function initLabels(controls) {
     const dt = clamp((t - lastT) / 1000, 0.001, 0.05);
     lastT = t;
 
-    let want = null;
-    if (!overChrome && typeof controls.hitTest === 'function') {
-      want = controls.hitTest(pxy.x, pxy.y);
-      if (want != null && !known.has(idNum(want))) want = null; // no name, no label
+    // re-pick only when the pointer actually moved (advisory: hitTest walks
+    // every creature — an idle pointer must not pay for it every rAF)
+    if (moved) {
+      moved = false;
+      lastPick = null;
+      if (!overChrome && typeof controls.hitTest === 'function') {
+        const pick = controls.hitTest(pxy.x, pxy.y);
+        if (pick != null && known.has(idNum(pick))) lastPick = pick; // no name, no label
+      }
     }
+    const want = lastPick;
 
     // debounce: where bodies overlap, the engine's pick can flap between two
     // creatures frame to frame — a new pick must stay stable to take over
@@ -196,12 +206,13 @@ export function initLabels(controls) {
       if (tag.style.opacity !== '0') tag.style.opacity = '0';
       return;
     }
-    const a = controls.screenAnchor(hoverId);
+    const a = controls.screenAnchor(hoverId, anchorScratch); // no-alloc path
     if (!a) {
       // the body dispersed under the pointer — the name goes with it
       hoverId = null;
       effWant = null;
       candidate = null;
+      lastPick = null;
       alpha = 0;
       tag.style.opacity = '0';
       return;

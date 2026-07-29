@@ -58,6 +58,7 @@ export function create( scene, globalUniforms, opts = {} ) {
 		},
 		resize( w, h ) {
 			if ( caustics ) caustics.resize( w, h );
+			if ( sediment ) sediment.resize( w, h );
 		},
 		dispose() {
 			for ( const p of parts ) p.dispose();

@@ -660,12 +660,45 @@ async function main() {
         }
       });
 
+      // ---- 16. Phase F resize torture: 960x540 -> 1440x900 -> 700x400 -----
+      // Each stage must leave the frame correct: backing buffer matches the
+      // CSS aspect (no stretch), creatures still render (camera/targets/fog
+      // scale all re-derived), and the board survives the sequence.
+      await scenario('resize', async (s) => {
+        await load(`fixedstep=1&board=${encodeURIComponent('jellyfish,kelp,eel')}`);
+        await step(300); // formations + moonlit trails settle at 960x540
+        s.stages = {};
+        for (const [w, h] of [[1440, 900], [700, 400]]) {
+          await page.setViewportSize({ width: w, height: h });
+          await page.waitForTimeout(150); // resize event -> onResize lands
+          await step(150); // trails re-fill the fresh (flushed) targets
+          const buf = await shot(`resize-${w}x${h}.png`);
+          const st = await pngStats(buf, 'full');
+          const geom = await page.evaluate(() => {
+            const c = document.getElementById('scene');
+            return { bw: c.width, bh: c.height, cw: innerWidth, ch: innerHeight };
+          });
+          s.stages[`${w}x${h}`] = { maxChannel: st.maxChannel, litCount: st.litCount, ...geom };
+          if (st.width !== w || st.height !== h) {
+            throw new Error(`resize ${w}x${h}: screenshot is ${st.width}x${st.height}`);
+          }
+          const aspectErr = Math.abs(geom.bw / geom.bh - geom.cw / geom.ch);
+          if (aspectErr > 0.02) {
+            throw new Error(`resize ${w}x${h}: stretched aspect — backing ${geom.bw}x${geom.bh} vs css ${geom.cw}x${geom.ch}`);
+          }
+          if (st.maxChannel < 40) {
+            throw new Error(`resize ${w}x${h}: maxChannel ${st.maxChannel} — creatures missing after resize`);
+          }
+        }
+        await page.setViewportSize({ width: 960, height: 540 }); // leave as found
+      });
+
     } finally {
       await browser.close().catch(() => {});
       await server.close().catch(() => {});
     }
   } else {
-    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'feeding', 'capture', 'soakE']) {
+    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'feeding', 'capture', 'soakE', 'resize']) {
       report.scenarios[name] = { pass: false, error: 'skipped: build failed' };
     }
   }

@@ -100,7 +100,10 @@ export function createPipeline( renderer, scene, camera, opts = {} ) {
 	const bloom = new Bloom();
 	const bloomParams = {
 		strength: opts.bloom?.strength ?? 0.35,
-		threshold: opts.bloom?.threshold ?? 0.55,
+		// threshold 0.55 -> 0.65 (Phase F): keep bloom off the mid-bright body
+		// of small merged creatures — their skirt came from bloom as much as
+		// from the halo. Large-creature hot cores sit well above either value.
+		threshold: opts.bloom?.threshold ?? 0.65,
 		radius: opts.bloom?.radius ?? 0.4,
 	};
 	const blackTexture = new THREE.DataTexture( new Uint8Array( [ 0, 0, 0, 255 ] ), 1, 1 );

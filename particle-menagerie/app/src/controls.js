@@ -77,7 +77,10 @@ export const PRESETS = {
     lightDir: [-0.45, 0.75, 0.4], lightColor: [0.8, 0.94, 1.05], rim: 1.25,
     fogDensity: 0.0015, fogTint: [1, 1, 1], gain: 1.0, trailsK: 0.25,
     current: 0, turbulence: 1, planktonAlpha: 0.4,
-    caustics: 0.85, sediment: 0.55, ao: 0.7, bloom: 0.35,
+    // caustics 0.85 -> 1.0 (Phase F default polish): the moon shafts were
+    // reading as barely-there; full intensity keeps them soft but present, so
+    // the default board says "moonlit" instead of "empty night water".
+    caustics: 1.0, sediment: 0.55, ao: 0.7, bloom: 0.35,
   },
   // near-lightless, heavy red-absorbing fog, long trails; no shafts reach
   // this deep — dense silt instead, bloom held low
@@ -117,6 +120,11 @@ export const PRESETS = {
 const DEFAULT_PRESET = 'moonlit';
 const FADE_S = 2.0; // 'weather changing, not a config load'
 
+// Every preset shares moonlit's exact shape (full scene-param sets, above),
+// so the key list is computed ONCE — lerpScene runs per frame during a
+// crossfade and must not Object.keys() each call.
+const SCENE_KEYS = Object.keys(PRESETS[DEFAULT_PRESET]);
+
 function clonePreset(p) {
   return {
     ...p,
@@ -127,7 +135,8 @@ function clonePreset(p) {
 }
 
 function lerpScene(out, a, b, e) {
-  for (const k of Object.keys(a)) {
+  for (let j = 0; j < SCENE_KEYS.length; j++) {
+    const k = SCENE_KEYS[j];
     if (Array.isArray(a[k])) {
       for (let i = 0; i < a[k].length; i++) out[k][i] = a[k][i] + (b[k][i] - a[k][i]) * e;
     } else {
@@ -206,16 +215,22 @@ export function createControls(engine) {
     state.creatures.find((c) => c.id === id && c.state === 'alive') || null;
 
   // ---- projection: creature center -> CSS px anchor -----------------------
+  // anchorInto is the no-alloc path: callers that run per frame (hitTest,
+  // labels via screenAnchor's out param) pass a reused target object.
   const _v = new THREE.Vector3();
-  function anchor(c) {
+  const _a = { x: 0, y: 0, radiusPx: 0 }; // hitTest's private scratch
+  function anchorInto(c, out) {
     camera.updateMatrixWorld();
     _v.copy(c.points.position).project(camera);
-    const x = (_v.x * 0.5 + 0.5) * state.W;
-    const y = (-_v.y * 0.5 + 0.5) * state.H;
+    out.x = (_v.x * 0.5 + 0.5) * state.W;
+    out.y = (-_v.y * 0.5 + 0.5) * state.H;
     const viewDist = Math.max(camera.position.distanceTo(c.points.position), 1);
     // camDist = (cssH/2)/tan(fov/2), so worldR * camDist / viewDist = px
-    const radiusPx = (c.rad * engine.getCamDist()) / viewDist;
-    return { x, y, radiusPx };
+    out.radiusPx = (c.rad * engine.getCamDist()) / viewDist;
+    return out;
+  }
+  function anchor(c) {
+    return anchorInto(c, { x: 0, y: 0, radiusPx: 0 });
   }
 
   // nearer/larger wins: normalized click distance, tie-broken toward the camera
@@ -224,7 +239,7 @@ export function createControls(engine) {
     let bestScore = Infinity;
     for (const c of alive()) {
       if (c.material.uniforms.uFormation.value < 0.35) continue; // still forming
-      const a = anchor(c);
+      const a = anchorInto(c, _a);
       const r = Math.max(a.radiusPx, 18);
       const d = Math.hypot(px - a.x, py - a.y);
       if (d > r * 1.1 + 10) continue;
@@ -476,9 +491,11 @@ export function createControls(engine) {
         if (i >= 0) selCbs.splice(i, 1);
       };
     },
-    screenAnchor: (id) => {
+    // out (optional): reused {x, y, radiusPx} target — the no-alloc path for
+    // per-frame callers (labels). Omit it and a fresh object is returned.
+    screenAnchor: (id, out) => {
       const c = byId(id);
-      return c ? anchor(c) : null;
+      return c ? (out ? anchorInto(c, out) : anchor(c)) : null;
     },
     // params
     setParam,

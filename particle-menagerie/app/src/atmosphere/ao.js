@@ -109,8 +109,11 @@ export function create( scene, globalUniforms, opts = {} ) {
 	let intensity = opts.intensity ?? 1;
 	let lastT = 0;
 	// per-creature eased opacity, keyed by the rooted entry's identity so a
-	// blob fades in with formation and out through dispersal
-	let eased = new Map();
+	// blob fades in with formation and out through dispersal. ONE persistent
+	// Map + mark-sweep (records stamped with the frame id; a sweep pass runs
+	// only when an entry went unstamped) — no per-frame Map/array allocation.
+	const eased = new Map(); // entry -> { o: eased opacity, seen: frame id }
+	let frameId = 0;
 
 	// duck-typed reads: Creature objects from main.js or plain records
 	function readEntry( e, out ) {
@@ -132,15 +135,22 @@ export function create( scene, globalUniforms, opts = {} ) {
 		lastT = timeSec;
 		const c = 1 - Math.exp( -EASE_RATE * dt );
 		const rooted = getRooted() || [];
-		const next = new Map();
+		frameId++;
+		let marked = 0;
 		let slot = 0;
 		for ( let i = 0; i < rooted.length && slot < MAX; i++ ) {
 			const s = readEntry( rooted[ i ], scratch );
 			// target opacity: formation ramps it in, dispersal eases it to 0
 			const target = s.alive ? BASE_OPACITY * intensity * s.formation : 0;
-			const prev = eased.get( rooted[ i ] ) ?? 0;
-			const o = prev + ( target - prev ) * c;
-			next.set( rooted[ i ], o );
+			let rec = eased.get( rooted[ i ] );
+			if ( !rec ) {
+				rec = { o: 0, seen: 0 }; // allocated once per creature, not per frame
+				eased.set( rooted[ i ], rec );
+			}
+			rec.seen = frameId;
+			marked++;
+			const o = rec.o + ( target - rec.o ) * c;
+			rec.o = o;
 			if ( o < 0.003 ) continue; // invisible — free the slot
 			const halfW = s.r * footprint;
 			for ( let v = 0; v < 6; v++ ) {
@@ -154,7 +164,13 @@ export function create( scene, globalUniforms, opts = {} ) {
 			}
 			slot++;
 		}
-		eased = next; // entries gone from getRooted() are dropped with their state
+		// sweep: entries gone from getRooted() are dropped with their state —
+		// only walked when something actually went unstamped this frame
+		if ( eased.size > marked ) {
+			for ( const [ key, rec ] of eased ) {
+				if ( rec.seen !== frameId ) eased.delete( key );
+			}
+		}
 		geometry.setDrawRange( 0, slot * 6 );
 		if ( slot > 0 ) {
 			blobAttr.needsUpdate = true;

@@ -11,11 +11,19 @@
   #webgl-required{display:none;position:fixed;inset:0;color:rgba(255,235,214,.6);
     font:12px ui-monospace,Menlo,monospace;letter-spacing:.15em;
     align-items:center;justify-content:center;text-align:center}
+  /* temporary summon input — Bathyscaphe chrome replaces this in Phase D */
+  #summon{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);z-index:5}
+  #summon-input{background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.18);
+    color:rgba(255,255,255,.85);font:15px ui-monospace,Menlo,monospace;letter-spacing:.12em;
+    text-align:center;padding:8px 4px;width:300px;outline:none;transition:border-color .4s}
+  #summon-input:focus{border-bottom-color:rgba(140,220,255,.5)}
+  #summon-input::placeholder{color:rgba(255,255,255,.22)}
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
 <div id="webgl-required">this water needs WebGL2 — please use a browser that supports it</div>
+<form id="summon" autocomplete="off"><input id="summon-input" placeholder="name a sea creature or flower" autocomplete="off" spellcheck="false"></form>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

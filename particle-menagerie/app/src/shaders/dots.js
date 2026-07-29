@@ -76,7 +76,9 @@ void main() {
 
 	// Directional terms scale with uFormation: a still-forming swarm has
 	// meaningless normals and shows only the ambient floor.
-	vec3 lit = uColor * ( 0.35 + uLightColor * ( lambert + rim ) * uFormation );
+	// Ambient floor 0.35 -> 0.45 (Phase C tuning): face-on sheet interiors
+	// (ray wing, bloom petals) get little rim and were reading faint.
+	vec3 lit = uColor * ( 0.45 + uLightColor * ( lambert + rim ) * uFormation );
 
 	// Exponential fog is part of the emitted light, applied pre-accumulation so
 	// it lands in the trail history (frame-graph rule 9 / spec section 9).
@@ -106,8 +108,10 @@ void main() {
 
 	// Hot core + soft halo, both gaussian; the halo is windowed to zero at the
 	// inscribed circle so the square sprite corner never shows under additive.
+	// Halo raised 0.30/-4.0 -> 0.55/-3.2 (Phase C tuning): more bioluminescent
+	// bleed around each dot; overall energy rebalanced via pipeline exposure.
 	float core = exp( -d2 * 12.0 );
-	float halo = 0.30 * exp( -d2 * 4.0 ) * clamp( 1.0 - d2, 0.0, 1.0 );
+	float halo = 0.55 * exp( -d2 * 3.2 ) * clamp( 1.0 - d2, 0.0, 1.0 );
 
 	float twinkle = 0.80 + 0.20 * sin( uTime * 2.1 + vTw );
 

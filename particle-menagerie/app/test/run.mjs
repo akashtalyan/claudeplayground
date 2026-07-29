@@ -236,12 +236,74 @@ async function main() {
         if (!s.pass) console.error(`soak: central pixel channel ${stats.maxChannel}/255 after decay (bound 6) — trails did not reach black`);
       });
 
+      // ---- 9. Phase C sweep: 12-creature board, all 9 archetypes ---------
+      await scenario('sweep', async (s) => {
+        const board = [
+          'eel', 'jellyfish', 'manta', 'koi', 'octopus', 'starfish',
+          'blob', 'lotus', 'kelp', 'shark', 'anemone', 'squid',
+        ].join(',');
+        await load(`fixedstep=1&board=${encodeURIComponent(board)}`);
+        await step(400); // warm ~6.7s sim-time: all formations complete
+        let i = 0;
+        for (const yaw of [0, 0.45]) {
+          for (const az of [0.8, 2.4]) {
+            i++;
+            await page.evaluate(
+              ([y, a]) => {
+                window.__menagerie.test.setCameraYaw(y);
+                window.__menagerie.test.setLightAzimuth(a);
+              },
+              [yaw, az],
+            );
+            await step(40); // trails re-accumulate under new view/light
+            const buf = await shot(`sweep-a${i}.png`);
+            const st = await pngStats(buf, 'full');
+            s[`a${i}`] = { blownFrac: st.blownFrac, maxChannel: st.maxChannel };
+            // a 12-creature board must glow without washing out
+            if (st.blownFrac > 0.08) {
+              s.pass = false;
+              console.error(`sweep-a${i}: ${(st.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
+            }
+            if (st.maxChannel < 40) {
+              s.pass = false;
+              console.error(`sweep-a${i}: maxChannel ${st.maxChannel} — board too dark`);
+            }
+          }
+        }
+        await page.evaluate(() => {
+          window.__menagerie.test.setCameraYaw(0);
+          window.__menagerie.test.setLightAzimuth(0.8);
+        });
+      });
+
+      // ---- 10. per-archetype solo shots ----------------------------------
+      await scenario('solo', async (s) => {
+        const names = {
+          eel: 'eel', medusa: 'jellyfish', fish: 'fish', ray: 'manta ray',
+          octo: 'octopus', star: 'starfish', amorph: 'plankton',
+          bloom: 'lotus', kelp: 'kelp',
+        };
+        await load('fixedstep=1&board=eel');
+        s.shots = [];
+        for (const [arch, name] of Object.entries(names)) {
+          await page.evaluate((n) => window.__menagerie.test.solo(n), name);
+          await step(200);
+          const buf = await shot(`solo-${arch}.png`);
+          const st = await pngStats(buf, 'central');
+          s.shots.push({ arch, maxChannel: st.maxChannel });
+          if (st.maxChannel < 40) {
+            s.pass = false;
+            console.error(`solo-${arch}: central maxChannel ${st.maxChannel} — creature missing or too dark`);
+          }
+        }
+      });
+
     } finally {
       await browser.close().catch(() => {});
       await server.close().catch(() => {});
     }
   } else {
-    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak']) {
+    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo']) {
       report.scenarios[name] = { pass: false, error: 'skipped: build failed' };
     }
   }

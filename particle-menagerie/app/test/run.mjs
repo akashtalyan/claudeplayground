@@ -555,18 +555,19 @@ async function main() {
         const drop = await page.evaluate(() => {
           const m = window.__menagerie;
           const a = m.controls.screenAnchor('c1');
-          const x = Math.min(Math.max(a.x + 90, 80), innerWidth - 80);
-          const y = Math.min(Math.max(a.y - 60, 80), innerHeight - 140);
+          const x = Math.min(Math.max(a.x + 170, 80), innerWidth - 80);
+          const y = Math.min(Math.max(a.y - 90, 80), innerHeight - 140);
           m.feeding.drop(x, y);
           return { p: m.test.creaturePos('c1'), mote: m.feeding.getMote() };
         });
         const d0 = Math.hypot(drop.p.x - drop.mote.x, drop.p.y - drop.mote.y, drop.p.z - drop.mote.z);
         s.distStart = d0;
+        await step(15); // quarter-second in: mote pulsing, fish breaking drift
+        await shot('feeding.png');
         let eaten = false;
         let dMin = d0;
         for (let i = 0; i < 12; i++) {
           await step(30); // 0.5 s sim-time per check
-          if (i === 1) await shot('feeding.png'); // mid-race
           const r = await page.evaluate(() => {
             const m = window.__menagerie;
             return { p: m.test.creaturePos('c1'), mote: m.feeding.getMote() };

@@ -70,11 +70,21 @@ void main() {
 	float viewDist = max( -mv.z, 0.0 );
 	// Exponential fog pre-accumulation, same model as the dot shader
 	// (frame-graph rule 9); uGain is the weather's pre-accumulation exposure.
+	// Integrator fix: applied as LUMINANCE, and the light color is pulled 65%
+	// toward gray. A shaft is a large STEADY dim gradient — per-channel-tinted,
+	// its channels straddle the trails pass's sub-8/255 subtractive-epsilon
+	// zone unevenly and the steady state bands into saturated red/olive
+	// (fp16-decay guard crushing blue first). Near-neutral color keeps the
+	// channels crossing that zone together, so the fade stays neutral;
+	// scattered shaft light reading desaturated is also physically right.
 	vec3 fog = exp( -uFogDensity * uFogScale * viewDist * uFogTint );
+	const vec3 LUMA = vec3( 0.2126, 0.7152, 0.0722 );
+	float fogL = dot( fog, LUMA );
+	vec3 lc = mix( vec3( dot( uLightColor, LUMA ) ), uLightColor, 0.35 );
 
 	vUv = vec2( u, v );
 	vSeed = aRand.y;
-	vColor = uLightColor * fog * uGain * ( uIntensity * flicker );
+	vColor = lc * fogL * uGain * ( uIntensity * flicker );
 
 	gl_Position = projectionMatrix * mv;
 }
@@ -105,9 +115,17 @@ void main() {
 	// breakdown §2.5): a faint 1D modulation drifting slowly down-shaft.
 	float bands = 0.88 + 0.12 * sin( u * ( 2.0 + vSeed * 3.0 ) + v * 9.0 - uTime * 0.14 );
 
+	// Zero-mean temporal dither (integrator fix): a steady dim gradient parks
+	// pixels on the trails pass's sub-8/255 epsilon threshold and the steady
+	// state posterizes into a hard iso-contour. ±20% alpha ripple walks each
+	// pixel across the threshold so the accumulated average stays smooth —
+	// and the residual grain reads as surface-ripple shimmer in the shaft.
+	float dither = fract( sin( dot( gl_FragCoord.xy, vec2( 12.9898, 78.233 ) )
+	                           + uTime * 9.0 ) * 43758.5453 );
+
 	// Additive SrcAlpha/One: scalar shape rides in alpha, color in rgb —
 	// linear HDR out, exactly like the dot shader.
-	gl_FragColor = vec4( vColor, across * along * bands );
+	gl_FragColor = vec4( vColor, across * along * bands * ( 0.8 + 0.4 * dither ) );
 }
 `;
 
@@ -115,7 +133,7 @@ void main() {
 // app's ~3.4 exposure this reads as a suggestion of light, not a beam.
 // (Integrator tuning 0.05 → 0.07: at 0.05 the moonlit preset's 0.6 intensity
 // × gain 1.0 fell below one sRGB step — shafts existed only in shallows.)
-const BASE_ALPHA = 0.07;
+const BASE_ALPHA = 0.09;
 
 export function create( scene, globalUniforms, opts = {} ) {
 

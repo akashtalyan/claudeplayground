@@ -77,7 +77,7 @@ export const PRESETS = {
     lightDir: [-0.45, 0.75, 0.4], lightColor: [0.8, 0.94, 1.05], rim: 1.25,
     fogDensity: 0.0015, fogTint: [1, 1, 1], gain: 1.0, trailsK: 0.25,
     current: 0, turbulence: 1, planktonAlpha: 0.4,
-    caustics: 0.6, sediment: 0.55, ao: 0.7, bloom: 0.35,
+    caustics: 0.85, sediment: 0.55, ao: 0.7, bloom: 0.35,
   },
   // near-lightless, heavy red-absorbing fog, long trails; no shafts reach
   // this deep — dense silt instead, bloom held low
@@ -95,12 +95,14 @@ export const PRESETS = {
     current: 7, turbulence: 1.55, planktonAlpha: 0.9,
     caustics: 0.15, sediment: 0.5, ao: 0.5, bloom: 0.75,
   },
-  // minimal glow, stark rims, no trails, still water — nearly no atmosphere
+  // minimal glow, stark rims, no trails, still water — no atmosphere at all
+  // (sediment fully off: stark empty water is ink's whole identity, and the
+  // harness proves the layer absent at pixel level)
   ink: {
     lightDir: [-0.05, 0.99, 0.1], lightColor: [0.85, 0.85, 0.85], rim: 2.3,
     fogDensity: 0.0007, fogTint: [1, 1, 1], gain: 0.75, trailsK: 0.95,
     current: 0, turbulence: 0.8, planktonAlpha: 0.04,
-    caustics: 0, sediment: 0.06, ao: 0.15, bloom: 0,
+    caustics: 0, sediment: 0, ao: 0.15, bloom: 0,
   },
   // warmer, brighter, light caustic-like flicker via turbulence — the shafts
   // at full strength, only a light dusting of silt

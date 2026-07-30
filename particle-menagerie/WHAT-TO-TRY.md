@@ -37,8 +37,14 @@ Hi Akash — v3 is done and it's a genuinely lovely thing. Here's the tour.
 10. **Copy the URL and send it to someone.** The whole board lives in the hash —
     creatures, tweaks, weather — and reforms exactly on their machine.
 
-Bonus: plant a garden first (`kelp`, `coral`, `lotus`, `anemone`), then summon
-swimmers over it. Unknown words work too — anything becomes *some* sea creature.
+Bonus — **plant a garden first**, then summon swimmers over it. The flora has
+species too: `seagrass` (a stand of thin blades), `seaweed` (wide curly
+ribbons), `sea fan` (flat and spreading), `coral` (stubby clusters), `anemone`
+(a swaying tentacle crown), `lotus` (wide flat petals), `rose`, `tulip`, `kelp`.
+Unknown words work too — anything becomes *some* sea creature.
+
+Known nit: the anemone's crown reads as a bright blob at small on-screen sizes
+(many short petals converging on one point). Every other species is clean.
 
 ## Honest note on performance
 

@@ -31,49 +31,49 @@ const HPI = Math.PI / 2;
 export const REGISTRY = {
   eel: {
     maker: makeEel, class: 'swimmer', boundR: 3.5,
-    scale: 52, dotPx: 4.4, alpha: 1.0, speed: 30,
+    scale: 52, dotPx: 3.07, alpha: 1.0, speed: 30,
     yawOffset: Math.PI, pitch: 0, spin: 0,
   },
   fish: {
     maker: makeFish, class: 'swimmer', boundR: 2.6,
-    scale: 54, dotPx: 4.2, alpha: 1.1, speed: 40,
+    scale: 54, dotPx: 2.87, alpha: 1.1, speed: 40,
     yawOffset: Math.PI, pitch: 0, spin: 0,
   },
   ray: {
     maker: makeRay, class: 'swimmer', boundR: 3.4,
-    scale: 50, dotPx: 4.8, alpha: 1.5, speed: 24,
+    scale: 50, dotPx: 3.37, alpha: 1.5, speed: 24,
     yawOffset: -HPI, pitch: -0.85, spin: 0,
   },
   medusa: {
     maker: makeMedusa, class: 'drifter', boundR: 6.4,
-    scale: 30, dotPx: 4.6, alpha: 1.0, speed: 0,
+    scale: 30, dotPx: 3.11, alpha: 1.0, speed: 0,
     yawOffset: 0, pitch: 0, spin: 0.09,
   },
   octo: {
     maker: makeOcto, class: 'drifter', boundR: 3.3,
-    scale: 40, dotPx: 4.2, alpha: 0.95, speed: 0,
+    scale: 40, dotPx: 2.85, alpha: 0.95, speed: 0,
     yawOffset: 0, pitch: 0.12, spin: 0.11,
   },
   star: {
     maker: makeStar, class: 'drifter', boundR: 2.7,
-    scale: 46, dotPx: 4.6, alpha: 1.15, speed: 0,
+    scale: 46, dotPx: 3.11, alpha: 1.15, speed: 0,
     yawOffset: 0, pitch: -1.05, spin: 0, // spins internally (~0.2 rad/s)
   },
   amorph: {
     maker: makeAmorph, class: 'drifter', boundR: 2.9,
-    scale: 40, dotPx: 4.0, alpha: 0.9, speed: 0,
+    scale: 40, dotPx: 2.63, alpha: 0.9, speed: 0,
     yawOffset: 0, pitch: 0, spin: 0.07,
   },
   bloom: {
     maker: makeBloom, class: 'rooted', boundR: 3.9,
     // alpha 1.05 -> 0.82: dense-crown morphs (anemone, rose) pile many short
     // petals into a small area and blew out to a white core.
-    scale: 46, dotPx: 4.4, alpha: 0.82, speed: 0,
+    scale: 46, dotPx: 3.03, alpha: 0.82, speed: 0,
     yawOffset: 0, pitch: 0, spin: 0,
   },
   kelp: {
     maker: makeKelp, class: 'rooted', boundR: 5.8,
-    scale: 42, dotPx: 3.6, alpha: 0.95, speed: 0,
+    scale: 42, dotPx: 2.6, alpha: 0.95, speed: 0,
     yawOffset: 0, pitch: 0, spin: 0,
   },
 };

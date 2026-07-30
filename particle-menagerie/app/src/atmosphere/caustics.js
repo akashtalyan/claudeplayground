@@ -82,6 +82,10 @@ void main() {
 	const vec3 LUMA = vec3( 0.2126, 0.7152, 0.0722 );
 	float fogL = dot( fog, LUMA );
 	vec3 lc = mix( vec3( dot( uLightColor, LUMA ) ), uLightColor, 0.35 );
+	// Cool blue-silver bias: the near-neutral shaft color drifts olive once the
+	// trails epsilon guard crushes blue — pre-bias the emitted light cold so
+	// the accumulated steady state lands on the scene's moonlight palette.
+	lc *= vec3( 0.78, 0.92, 1.22 );
 
 	vUv = vec2( u, v );
 	vSeed = aRand.y;
@@ -108,9 +112,9 @@ void main() {
 	// Soft gaussian across the width, windowed to zero at the quad edge.
 	float across = exp( -u * u * 2.6 ) * max( 1.0 - u * u, 0.0 );
 
-	// Fade along the shaft: full where it enters the frame, dissolving toward
-	// the tip as the water absorbs it.
-	float along = ( 1.0 - v ) * ( 1.0 - v );
+	// Fade along the shaft: eased in near the surface (no hard bright wedge at
+	// the frame's top edge), dissolving toward the tip as the water absorbs it.
+	float along = ( 1.0 - v ) * ( 1.0 - v ) * smoothstep( 0.0, 0.28, v );
 
 	// Scrolling internal bands (the cheap stand-in for a caustic mask —
 	// breakdown §2.5): a faint 1D modulation drifting slowly down-shaft.

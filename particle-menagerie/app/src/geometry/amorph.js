@@ -25,8 +25,14 @@ const A3H = 0.2; // never collapse through the center or fold negative)
 const SQUASH_Y = 0.88; // v2's gentle vertical squash
 
 export function makeAmorph(seed, opts = {}) {
-  const shellCount = opts.shellCount ?? 12;
-  const count = opts.count ?? 1300;
+  // v3.2 density uplift: 1300 dots / 12 shells → 3000 / 16 (2.31×). Shells and
+  // dots rise together (~1.33× radial, ~1.35× tangential on the outer shell) so
+  // the nested-shell read is preserved: pushing shells alone would separate
+  // them into visibly discrete onion layers, pushing dots alone would blur the
+  // shells into a solid ball. The Fibonacci lattice per shell keeps its crisp
+  // spiral quantization (§7) — nothing is randomly scattered.
+  const shellCount = opts.shellCount ?? 16;
+  const count = opts.count ?? 3000;
   const baseRadius = opts.radius ?? 1.8;
 
   const rng = mulberry32(seed);

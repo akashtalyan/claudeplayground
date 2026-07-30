@@ -76,16 +76,28 @@ export function makeKelp(seed, opts = {}) {
   // within the ~1600 budget; ring/dot counts are the only densification, so
   // the RNG stream keeps its exact block structure (draw ORDER unchanged,
   // per-dot blocks simply extended — append-only within each block).
-  const ringsTotal = opts.rings ?? 132; // rings shared across strands
+  // v3.2 density uplift: 132×12 → 300×12 = 3600 (2.27×). ALL of it goes into
+  // rings, none into dotsPerRing: a kelp strand is thin (r ≈ 0.1), so at 12
+  // dots its circumferential pitch is already ~0.05 while the ring pitch was
+  // ~0.19 at 5 strands — the blades looked like ladders. 300 rings brings the
+  // pitch to ~0.07, and a 12-strand seagrass stand from 11 rings/strand
+  // (unreadable) to 25. Same block structure as the Phase E change above.
+  const ringsTotal = opts.rings ?? 300; // rings shared across strands
   const dotsPerRing = opts.dotsPerRing ?? 12;
-  const count = ringsTotal * dotsPerRing; // fixed 1584 for every seed
+  const count = ringsTotal * dotsPerRing; // fixed 3600 for every seed
   const H0 = opts.height ?? 4.6;
   const baseRadius = opts.radius ?? 0.1;
   // Anchor fan radius. v2 spaced strand bases ~0.12·H apart (a visible stand
   // of kelp); the original 0.35 clumped all roots into one apparent stalk —
   // integrator bug fix: widened, with strands fanned evenly in azimuth below.
   const spread = opts.spread ?? 1.05;
-  const sampleCount = opts.sampleCount ?? 140; // per-strand curve samples
+  // Per-strand curve samples — stays at v3.1's 140 even though a strand now
+  // carries 50-75 stations instead of 22-33. Verified shape-neutral vs a
+  // 400-sample build (240 frames, sway 0/1/2.4): max position delta 0.006 =
+  // 0.23% of extent, worst case coral. Worth checking rather than assuming,
+  // because this sampler is the archetype's hot loop — the curve evaluates
+  // Math.pow per sample, so samples cost more here than dots do.
+  const sampleCount = opts.sampleCount ?? 140;
 
   const rng = mulberry32(seed);
   // ---- FROZEN DRAW ORDER (spec §8) — append only, never insert ----

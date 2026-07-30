@@ -22,20 +22,32 @@ const SWAY_MAX = 2.4; // slider 2.4 = max safe sway (spec §5 normalization)
 const ARMS = 8;
 
 export function makeOcto(seed, opts = {}) {
-  const mantleRings = opts.mantleRings ?? 16;
-  const mantleDots = opts.mantleDots ?? 40;
-  const armStations = opts.armStations ?? 29;
-  const armDots = opts.armDots ?? 5;
+  // v3.2 density uplift: mantle 16×40 (640) → 24×56 (1344) — meridian pitch
+  // H·1.81/23 ≈ 0.075 vs equator 2πR/56 ≈ 0.081, near-square cells on the
+  // dome. Arms 8×29×5 (1160) → 8×40×8 (2560): the extra budget goes mostly
+  // into armDots (5 → 8) because at 5 the thin arm tube read as a flat dotted
+  // ribbon from the side; 8 closes the cross-section (arm circumference
+  // 2π·0.11/8 ≈ 0.086 vs station pitch 2.55/39 ≈ 0.065). 1800 → 3904 (2.17×).
+  const mantleRings = opts.mantleRings ?? 24;
+  const mantleDots = opts.mantleDots ?? 56;
+  const armStations = opts.armStations ?? 40;
+  const armDots = opts.armDots ?? 8;
   const mantleCount = mantleRings * mantleDots;
   const armCount = ARMS * armStations * armDots;
-  const count = mantleCount + armCount; // defaults: 640 + 1160 = 1800
+  const count = mantleCount + armCount; // defaults: 1344 + 2560 = 3904
   const ringCount = mantleRings + armStations;
 
   const R = opts.mantleRadius ?? 0.72; // equatorial mantle radius
   const H = opts.mantleHeight ?? 0.95; // dome semi-height (v2: ×1.2 elongation)
   const armLenBase = opts.armLength ?? 2.55;
   const armR0 = opts.armRadius ?? 0.11;
-  const M = opts.armSamples ?? 96; // centerline integration/sample points
+  // Centerline integration/sample points. DO NOT retune with the density: M is
+  // not just a sampler, it is the integration STEP of the arm centerline
+  // (integrateArm walks r += (L/(M-1))·cos φ), so the quadrature error is part
+  // of the shipped arm curl. Measured: M 96 → 264 moves dots by 0.155 units,
+  // 9% of the arm's extent, even at sway 0 — i.e. a visibly different octopus.
+  // 96 is the value v3.1's arms were tuned at, so 96 it stays.
+  const M = opts.armSamples ?? 96;
 
   const rng = mulberry32(seed);
   // ---- FROZEN DRAW ORDER (spec §8) — append only, never insert ----

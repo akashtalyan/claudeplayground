@@ -1,31 +1,51 @@
-// Bathyscaphe State B chrome — the gauge plate.
-// Fidelity contract: design/bathyscaphe/README.md (State B + Interactions).
+// Bathyscaphe State B chrome — the gauge plate (v3.2: named intents).
+// Fidelity contract: design/bathyscaphe/README.md (State B + Interactions),
+// with ONE directed change to the control FORM: the numeric needle sliders
+// are gone. The visual LANGUAGE is untouched — amber phosphor, Spectral
+// small-caps labels, IBM Plex Mono readouts, glass plate, brass hairlines,
+// the 400ms rise-through-water entry, 40%->85% hover.
+//
+// Why: numbers like "glow 62 / sway 25" name nothing. Every row now reads as
+// a description of what the creature IS DOING, and the gauge needle survives
+// as the thing that points at the chosen word on a brass detent strip:
+//
+//   motion   · · | ·          lively      (tempo + sway — one idea, one row)
+//   light    · | · ·             dim      (glow + twinkle)
+//   size     · · | · ·        normal
+//   depth    · | ·               mid      (the parallax band)
+//   doing    | · · · ·      drifting      (promoted out of the drawer)
+//   color    ● ● ● ● ● ● ● ● ●
+//   ─────────────────────────────
+//   re-form   release
+//
+// iridescence and dot-density are CUT from the surface entirely (obscure) —
+// their engine params and URL-hash codes live on, so old links still restore.
+// Nothing worthwhile was left behind 'more ›', so the drawer is gone and
+// re-form / release sit inline. Restraint rule still holds: three things
+// visible at rest (summon input, weather rotary, plate).
 //
 // Styles live in ./chrome.css ("State B — gauge plate" section), loaded once
 // via <link> in index.html — do NOT re-import it. Markup is built here.
 //
 // Consumes ONLY the controls API (src/controls.js):
 //   controls.onSelectionChange(cb)  — cb(snapshot|null): surface / sink
-//   controls.getSelected()          — { id, name, indexTag, params }
-//   controls.screenAnchor(id)       — { x, y, radiusPx } per frame; the plate
-//                                     follows it smoothly, avoiding edges
-//   controls.setParam / getParam / paramRange
+//   controls.getSelected()          — { id, name, indexTag, params, intents }
+//   controls.screenAnchor(id, out)  — { x, y, radiusPx } per frame (no-alloc
+//                                     out param); the plate follows it
+//   controls.intentAxes()           — axis descriptors (the rows below)
+//   controls.setIntent / getIntent  — the named layer
+//   controls.setParam / getParam    — only for color (a hue, not an intent)
 //   controls.reform / release
 //
-// Interactions per the contract:
+// Interactions:
 //   entry  = blur 8px -> 0 + 6px upward drift, 400ms ease-out ("rising
 //            through water"); exit reverses, slightly faster
-//   drag   = inertia (the needle chases the pointer on an underdamped
-//            spring) + soft felt detents on the display-unit grid; on
-//            release the needle overshoots ~1 display unit and settles
-//   values apply live via controls.setParam while the needle moves
-//   behind 'more ›': twinkle / iridescence / dot density / depth sliders,
-//   behavior as ONE 5-notch rotary, and the compact v2 color swatch row —
-//   never inline ("at most 3 things visible without an explicit more").
-
-const MAIN_KEYS = ['glow', 'tempo', 'sway', 'size'];
-const ADV_KEYS = ['twinkle', 'iridescence', 'density', 'depth'];
-const ADV_LABELS = { density: 'dot density' };
+//   pick   = click a notch (or the row's label/word to cycle in place); the
+//            needle springs to it underdamped, overshooting a fraction of a
+//            notch and settling — the felt detent, now literal
+//   keys   = ← → step, home/end ends, enter/space cycles
+//   the word is derived, never stored: a raw setParam from anywhere (URL
+//   restore, another agent's UI) leaves the row reading its NEAREST intent.
 
 // v2 palette (particle-menagerie.html SWATCH): null = monochrome default
 const V2_PALETTE = [null, 45, 15, 185, 165, 215, 275, 310, 130];
@@ -35,22 +55,9 @@ const SINK_MS = 300; // exit reverses, slightly faster
 const EDGE_PX = 14; // canvas-edge margin the plate never crosses
 const GAP_PX = 18; // gap between the creature's radius and the plate
 const FOLLOW_RATE = 10; // 1-exp(-rate*dt) anchor smoothing
-const OMEGA = 16; // slider needle spring, rad/s
-const ZETA = 0.55; // underdamped -> visible overshoot
-const ROT_ZETA = 0.8; // rotary: overshoots ~a degree, not a notch
-
-// one display unit per key (the gauge readout's grid — soft-detent spacing
-// and the ~1-unit release overshoot), derived from PARAM_RANGES' fmt scale
-const DISPLAY_UNIT = {
-  glow: 1 / 50,
-  tempo: 1 / 40,
-  sway: 1 / 25,
-  size: 0.1,
-  twinkle: 1 / 50,
-  iridescence: 1 / 100,
-  density: 1 / 100,
-  depth: 1 / 50,
-};
+const OMEGA = 16; // needle spring, rad/s
+const ZETA = 0.62; // underdamped -> ~a tenth of a notch of overshoot
+const OVER = 0.4; // how far past the end notches the needle may swing
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -78,8 +85,8 @@ export function initPlate(controls) {
   tagEl.className = 'plate-tag';
   head.append(nameEl, tagEl);
 
-  const sliders = document.createElement('div');
-  sliders.className = 'plate-sliders';
+  const rowsEl = document.createElement('div');
+  rowsEl.className = 'plate-intents';
 
   const divider = document.createElement('div');
   divider.className = 'plate-divider';
@@ -98,183 +105,153 @@ export function initPlate(controls) {
   };
   mkAction('re-form', 'reform');
   mkAction('release', 'release');
-  const moreBtn = mkAction('more ›', 'more');
-  moreBtn.setAttribute('aria-expanded', 'false');
 
-  const more = document.createElement('div');
-  more.className = 'plate-more';
-
-  el.append(head, sliders, divider, actions, more);
+  el.append(head, rowsEl, divider, actions);
   document.body.appendChild(el);
 
-  // ---- slider rows + needle springs ---------------------------------------
+  // ---- intent rows --------------------------------------------------------
   let selId = null;
   let visible = false;
-  const springs = new Map(); // key -> spring/row state
+  const rows = []; // one entry per axis, in axis order
 
-  function buildRow(parent, key, adv) {
-    const range = controls.paramRange(key);
+  function buildRow(axis) {
+    const n = axis.options.length;
+
     const row = document.createElement('div');
-    row.className = 'plate-row' + (adv ? ' plate-row-adv' : '');
-    row.dataset.key = key;
+    row.className = 'plate-row plate-intent';
+    row.dataset.axis = axis.id;
     row.tabIndex = 0;
-    row.setAttribute('role', 'slider');
-    row.setAttribute('aria-label', ADV_LABELS[key] || key);
-    row.setAttribute('aria-valuemin', String(range.min));
-    row.setAttribute('aria-valuemax', String(range.max));
+    row.setAttribute('role', 'listbox');
+    row.setAttribute('aria-label', axis.label);
 
     const label = document.createElement('span');
     label.className = 'plate-label';
-    label.textContent = ADV_LABELS[key] || key;
-    const track = document.createElement('div');
-    track.className = 'plate-track';
+    label.textContent = axis.label;
+
+    const strip = document.createElement('div');
+    strip.className = 'plate-notches';
+    const notchEls = [];
+    for (let i = 0; i < n; i++) {
+      const notch = document.createElement('div');
+      notch.className = 'plate-notch';
+      notch.dataset.i = String(i);
+      notch.dataset.value = axis.options[i];
+      notch.setAttribute('role', 'option');
+      notch.setAttribute('aria-label', axis.options[i]);
+      notch.setAttribute('aria-selected', 'false');
+      strip.appendChild(notch);
+      notchEls.push(notch);
+    }
     const needle = document.createElement('div');
     needle.className = 'plate-needle';
-    track.appendChild(needle);
-    const value = document.createElement('span');
-    value.className = 'plate-value';
-    row.append(label, track, value);
-    parent.appendChild(row);
+    strip.appendChild(needle);
 
-    const s = {
-      key,
-      range,
-      unit: DISPLAY_UNIT[key],
-      v: range.min,
+    const word = document.createElement('span');
+    word.className = 'plate-value';
+    row.append(label, strip, word);
+    rowsEl.appendChild(row);
+
+    const r = {
+      axis: axis.id,
+      options: axis.options,
+      n,
+      i: 0, // selected notch index
+      v: 0, // spring position, notch units
       vel: 0,
-      target: range.min,
-      dir: 1,
+      target: 0,
       active: false,
-      dragging: false,
       row,
-      track,
       needle,
-      value,
+      word,
+      notchEls,
       lastPct: -1,
-      lastTxt: '',
+      lastWord: '',
     };
-    springs.set(key, s);
+    rows.push(r);
 
-    // drag: needle chases the pointer (inertia) through soft detents
-    const setTargetFromPointer = (ev) => {
-      const r = s.track.getBoundingClientRect();
-      if (r.width <= 0) return;
-      const raw =
-        s.range.min +
-        clamp((ev.clientX - r.left) / r.width, 0, 1) * (s.range.max - s.range.min);
-      const detent = Math.round(raw / s.unit) * s.unit;
-      if (raw !== s.target) s.dir = Math.sign(raw - s.target) || s.dir;
-      s.target = raw + (detent - raw) * 0.4; // soft felt detent pull
-      s.active = true;
-    };
-    row.addEventListener('pointerdown', (ev) => {
-      if (!selId || ev.button !== 0) return;
+    // click a notch = pick it; click the label or the word = cycle in place.
+    // preventDefault kills the text-selection drag, so focus is moved by hand
+    // (the row is the keyboard target afterwards; esc still bubbles out).
+    strip.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      const t = ev.target.closest('.plate-notch');
+      if (!t) return;
       ev.preventDefault();
-      row.setPointerCapture(ev.pointerId);
-      s.dragging = true;
-      setTargetFromPointer(ev);
+      row.focus({ preventScroll: true });
+      pick(r, +t.dataset.i);
     });
-    row.addEventListener('pointermove', (ev) => {
-      if (s.dragging) setTargetFromPointer(ev);
-    });
-    const endDrag = () => {
-      if (!s.dragging) return;
-      s.dragging = false;
-      const final = clamp(
-        Math.round(s.target / s.unit) * s.unit,
-        s.range.min,
-        s.range.max,
-      );
-      // release: guarantee the ~1-display-unit overshoot before settling
-      const need = s.unit * OMEGA * 1.6;
-      if (Math.abs(s.vel) < need && Math.abs(final - s.v) < 3 * s.unit) {
-        s.vel = (Math.sign(final - s.v) || s.dir) * need;
-      }
-      s.target = final;
+    const cycle = (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      row.focus({ preventScroll: true });
+      pick(r, r.i + 1); // wraps
     };
-    row.addEventListener('pointerup', endDrag);
-    row.addEventListener('pointercancel', endDrag);
+    label.addEventListener('pointerdown', cycle);
+    word.addEventListener('pointerdown', cycle);
 
-    // keyboard: one display unit per arrow press
     row.addEventListener('keydown', (ev) => {
-      const d = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
-      if (!d || !selId) return;
+      let next = -1;
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') next = Math.min(r.i + 1, r.n - 1);
+      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') next = Math.max(r.i - 1, 0);
+      else if (ev.key === 'Home') next = 0;
+      else if (ev.key === 'End') next = r.n - 1;
+      else if (ev.key === 'Enter' || ev.key === ' ') next = (r.i + 1) % r.n;
+      else return; // Escape and friends keep bubbling (esc deselects)
       ev.preventDefault();
       ev.stopPropagation(); // keep the summon field from stealing focus keys
-      s.dir = d;
-      s.target = clamp(s.target + d * s.unit, s.range.min, s.range.max);
-      s.active = true;
+      pick(r, next);
     });
-    return s;
+    return r;
   }
 
-  for (const k of MAIN_KEYS) buildRow(sliders, k, false);
-  for (const k of ADV_KEYS) buildRow(more, k, true);
+  for (const axis of controls.intentAxes()) buildRow(axis);
 
-  function renderRow(s) {
-    const cv = clamp(s.v, s.range.min, s.range.max);
-    const pct = ((cv - s.range.min) / (s.range.max - s.range.min)) * 100;
-    if (Math.abs(pct - s.lastPct) > 0.02) {
-      s.lastPct = pct;
-      s.needle.style.left = pct.toFixed(2) + '%';
-    }
-    const txt = s.range.fmt(cv);
-    if (txt !== s.lastTxt) {
-      s.lastTxt = txt;
-      s.value.textContent = txt;
-      s.row.setAttribute('aria-valuenow', String(+cv.toFixed(3)));
-    }
-  }
-
-  // ---- behavior: one 5-notch rotary ---------------------------------------
-  const behaviors = controls.paramRange('behavior').options;
-  const behRow = document.createElement('div');
-  behRow.className = 'plate-row plate-row-adv plate-behavior';
-  const behLabel = document.createElement('span');
-  behLabel.className = 'plate-label';
-  behLabel.textContent = 'behavior';
-  const mkArrow = (glyph, dir) => {
-    const a = document.createElement('span');
-    a.className = 'chrome-action plate-rot-arrow';
-    a.textContent = glyph;
-    a.setAttribute('role', 'button');
-    a.setAttribute('aria-label', dir > 0 ? 'next behavior' : 'previous behavior');
-    a.addEventListener('click', () => stepBehavior(dir));
-    return a;
-  };
-  const rotary = document.createElement('div');
-  rotary.className = 'plate-rotary';
-  const ticks = document.createElement('div');
-  ticks.className = 'plate-rotary-ticks';
-  const disc = document.createElement('div');
-  disc.className = 'plate-rotary-disc';
-  const word = document.createElement('span');
-  word.className = 'plate-rotary-word';
-  rotary.append(ticks, disc, word);
-  rotary.addEventListener('click', () => stepBehavior(1));
-  behRow.append(behLabel, mkArrow('‹', -1), rotary, mkArrow('›', 1));
-  more.appendChild(behRow);
-
-  // rotary spring: 72 deg per notch, felt-detent settle (~1 deg overshoot)
-  const rot = { a: 0, vel: 0, target: 0, notch: 0, active: false, last: 1e9 };
-  function renderRotary() {
-    if (Math.abs(rot.a - rot.last) < 0.05) return;
-    rot.last = rot.a;
-    ticks.style.transform = 'rotate(' + rot.a.toFixed(2) + 'deg)';
-  }
-  function stepBehavior(dir) {
+  // Pick an option: commit it to the engine, spring the needle to it. Always
+  // commits, even when the index is unchanged — that is how an off-intent
+  // param set (a hand-tuned legacy URL) snaps onto the word it was reading.
+  function pick(r, i) {
     if (!selId) return;
-    rot.notch += dir;
-    rot.target = rot.notch * 72;
-    rot.active = true;
-    const idx = ((rot.notch % behaviors.length) + behaviors.length) % behaviors.length;
-    word.textContent = behaviors[idx];
-    controls.setParam(selId, 'behavior', behaviors[idx]);
+    const idx = ((i % r.n) + r.n) % r.n;
+    r.i = idx;
+    r.target = idx;
+    r.active = true;
+    setWord(r, r.options[idx]);
+    controls.setIntent(selId, r.axis, r.options[idx]);
   }
 
-  // ---- color: compact v2 swatch row ---------------------------------------
+  function setWord(r, w) {
+    if (w === r.lastWord) return;
+    r.lastWord = w;
+    r.word.textContent = w;
+    for (let k = 0; k < r.n; k++) {
+      r.notchEls[k].setAttribute('aria-selected', k === r.i ? 'true' : 'false');
+    }
+  }
+
+  function renderRow(r) {
+    // notches tile the strip in equal cells; cell i is centered at (i+.5)/n
+    const pct = ((r.v + 0.5) / r.n) * 100;
+    if (Math.abs(pct - r.lastPct) < 0.02) return;
+    r.lastPct = pct;
+    r.needle.style.left = pct.toFixed(2) + '%';
+  }
+
+  // snap a row to an option with no spring travel (populate / external change)
+  function snapRow(r, value) {
+    const i = Math.max(r.options.indexOf(value), 0);
+    r.i = i;
+    r.v = r.target = i;
+    r.vel = 0;
+    r.active = false;
+    r.lastWord = '';
+    r.lastPct = -1;
+    setWord(r, r.options[i]);
+    renderRow(r);
+  }
+
+  // ---- color: compact swatch row (a hue is visual, not an intent) ---------
   const colRow = document.createElement('div');
-  colRow.className = 'plate-row plate-row-adv plate-colors';
+  colRow.className = 'plate-row plate-colors';
   const colLabel = document.createElement('span');
   colLabel.className = 'plate-label';
   colLabel.textContent = 'color';
@@ -295,7 +272,7 @@ export function initPlate(controls) {
     return b;
   });
   colRow.append(colLabel, swatches);
-  more.appendChild(colRow);
+  rowsEl.appendChild(colRow);
 
   let curHue = null;
   function markSwatch(h) {
@@ -311,11 +288,6 @@ export function initPlate(controls) {
     if (!selId) return;
     if (act === 'reform') controls.reform(selId);
     else if (act === 'release') controls.release(selId); // engine deselects -> sink
-    else if (act === 'more') {
-      const open = !el.classList.contains('more-open');
-      el.classList.toggle('more-open', open);
-      moreBtn.setAttribute('aria-expanded', String(open));
-    }
   };
   actions.addEventListener('click', (e) => {
     const t = e.target.closest('[data-act]');
@@ -340,26 +312,10 @@ export function initPlate(controls) {
     selId = sel.id;
     nameEl.textContent = sel.name;
     tagEl.textContent = sel.indexTag;
-    for (const s of springs.values()) {
-      s.v = s.target = clamp(sel.params[s.key], s.range.min, s.range.max);
-      s.vel = 0;
-      s.active = false;
-      s.dragging = false;
-      s.lastPct = -1;
-      s.lastTxt = '';
-      renderRow(s);
+    for (const r of rows) {
+      snapRow(r, (sel.intents && sel.intents[r.axis]) || controls.getIntent(sel.id, r.axis));
     }
-    const bi = Math.max(behaviors.indexOf(sel.params.behavior), 0);
-    rot.notch = bi;
-    rot.a = rot.target = bi * 72;
-    rot.vel = 0;
-    rot.active = false;
-    rot.last = 1e9;
-    renderRotary();
-    word.textContent = behaviors[bi];
     markSwatch(sel.params.color ?? null);
-    el.classList.remove('more-open'); // a fresh selection starts minimal
-    moreBtn.setAttribute('aria-expanded', 'false');
   }
 
   function surface(sel) {
@@ -401,8 +357,7 @@ export function initPlate(controls) {
       { duration: SINK_MS, easing: 'ease-in', fill: 'forwards' },
     );
     const done = () => {
-      el.classList.remove('surfaced', 'sinking', 'more-open');
-      moreBtn.setAttribute('aria-expanded', 'false');
+      el.classList.remove('surfaced', 'sinking');
       if (anim) {
         anim.cancel();
         anim = null;
@@ -412,8 +367,9 @@ export function initPlate(controls) {
   }
 
   // ---- anchor follow ------------------------------------------------------
+  const anchorScratch = { x: 0, y: 0, radiusPx: 0 }; // no-alloc per-frame path
   function place(dt) {
-    const a = controls.screenAnchor(selId);
+    const a = controls.screenAnchor(selId, anchorScratch);
     if (!a) return;
     const W = window.innerWidth;
     const H = window.innerHeight;
@@ -443,62 +399,42 @@ export function initPlate(controls) {
     el.style.top = py.toFixed(1) + 'px';
   }
 
-  // ---- springs + live apply -----------------------------------------------
+  // ---- needle springs -----------------------------------------------------
+  // Params are committed on pick, not per frame — the spring is purely the
+  // felt-detent settle. Underdamped, so it swings a fraction of a notch past
+  // the chosen word and comes back.
   function stepSprings(dt) {
-    for (const s of springs.values()) {
-      if (!s.active) continue;
-      const k = OMEGA * OMEGA;
-      const c = 2 * ZETA * OMEGA;
-      s.vel += (k * (s.target - s.v) - c * s.vel) * dt;
-      s.v += s.vel * dt;
-      // the needle may overshoot the range by ~1 display unit, no further
-      s.v = clamp(s.v, s.range.min - s.unit * 1.5, s.range.max + s.unit * 1.5);
-      if (
-        !s.dragging &&
-        Math.abs(s.v - s.target) < s.unit * 0.05 &&
-        Math.abs(s.vel) < s.unit * 0.5
-      ) {
-        s.v = s.target;
-        s.vel = 0;
-        s.active = false;
+    const k = OMEGA * OMEGA;
+    const c = 2 * ZETA * OMEGA;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r.active) continue;
+      r.vel += (k * (r.target - r.v) - c * r.vel) * dt;
+      r.v += r.vel * dt;
+      r.v = clamp(r.v, -OVER, r.n - 1 + OVER);
+      if (Math.abs(r.v - r.target) < 0.008 && Math.abs(r.vel) < 0.05) {
+        r.v = r.target;
+        r.vel = 0;
+        r.active = false;
       }
-      controls.setParam(selId, s.key, clamp(s.v, s.range.min, s.range.max));
-      renderRow(s);
-    }
-    if (rot.active) {
-      const k = OMEGA * OMEGA;
-      const c = 2 * ROT_ZETA * OMEGA;
-      rot.vel += (k * (rot.target - rot.a) - c * rot.vel) * dt;
-      rot.a += rot.vel * dt;
-      if (Math.abs(rot.a - rot.target) < 0.05 && Math.abs(rot.vel) < 0.5) {
-        rot.a = rot.target;
-        rot.vel = 0;
-        rot.active = false;
-      }
-      renderRotary();
+      renderRow(r);
     }
   }
 
-  // external changes (restore, other UI) reflected while idle
+  // external changes (restore, presets, a raw setParam from anywhere) show up
+  // as the NEAREST intent — the row is a view of the params, never a store
   function refreshFromEngine() {
-    if (!selId) return;
-    for (const s of springs.values()) {
-      if (s.active || s.dragging) continue;
-      const gv = controls.getParam(selId, s.key);
-      if (typeof gv === 'number' && Math.abs(gv - s.v) > 1e-4) {
-        s.v = s.target = gv;
-        s.vel = 0;
-        renderRow(s);
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.active) continue;
+      const cur = controls.getIntent(selId, r.axis);
+      if (cur && cur !== r.lastWord) {
+        const idx = Math.max(r.options.indexOf(cur), 0);
+        r.i = idx;
+        r.target = idx;
+        r.active = true; // glide, don't jump
+        setWord(r, cur);
       }
-    }
-    const b = controls.getParam(selId, 'behavior');
-    if (!rot.active && b && b !== word.textContent && behaviors.includes(b)) {
-      const bi = behaviors.indexOf(b);
-      rot.notch = bi;
-      rot.a = rot.target = bi * 72;
-      rot.last = 1e9;
-      renderRotary();
-      word.textContent = b;
     }
     const hue = controls.getParam(selId, 'color') ?? null;
     if (hue !== curHue) markSwatch(hue);
@@ -507,6 +443,7 @@ export function initPlate(controls) {
   // ---- private frame loop -------------------------------------------------
   let raf = 0;
   let lastT = performance.now();
+  let syncTick = 0;
   function loop(t) {
     raf = requestAnimationFrame(loop);
     const dt = clamp((t - lastT) / 1000, 0.001, 0.05);
@@ -514,7 +451,12 @@ export function initPlate(controls) {
     if (!visible || !selId) return;
     place(dt);
     stepSprings(dt);
-    refreshFromEngine();
+    // external param sync is a poll, not a hot path: ~10Hz is invisible to
+    // the eye and keeps the plate's per-frame work to the anchor + springs
+    if (++syncTick >= 6) {
+      syncTick = 0;
+      refreshFromEngine();
+    }
   }
   raf = requestAnimationFrame(loop);
 

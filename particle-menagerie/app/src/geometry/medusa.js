@@ -27,12 +27,20 @@ const PHI_SPAN = 1.72;
 const LAG_BELL = 1.9; // pulse phase lag apex→rim (the propagating rim curl)
 
 export function makeMedusa(seed, opts = {}) {
-  const bellRings = opts.bellRings ?? 24;
-  const bellDots = opts.bellDotsPerRing ?? 34;
-  const bellCount = bellRings * bellDots; // 816
-  const tentDotsPerRing = 3; // thin strand tube
-  const tentBudget = opts.tentDotBudget ?? 684; // bell + tentacles ≈ 1500
-  const tentSample = opts.tentSampleCount ?? 60;
+  // v3.2 density uplift: bell 24×34 (816) → 32×54 (1728); tentacle budget
+  // 684 → 1560, split as 4 dots/ring × ~2.2× the stations rather than 3 ×
+  // ~3×: at 3 the strand read as a flat dotted ribbon, and spending the whole
+  // budget on stations would have driven the per-strand arc sampler (below)
+  // harder than the dots themselves cost. A 3.5-long strand goes from ~0.12
+  // arc pitch to ~0.055. Bell meridian pitch B·1.72/31 ≈
+  // 0.089 vs equator circumference 2πB/54 ≈ 0.186: the bell is a wide dome,
+  // so meridian ribs stay the dominant read while the ribs themselves get
+  // twice the dots. Total ≈ 1509 → ≈ 3290 (~2.2×).
+  const bellRings = opts.bellRings ?? 32;
+  const bellDots = opts.bellDotsPerRing ?? 54;
+  const bellCount = bellRings * bellDots; // 1728
+  const tentDotsPerRing = 4; // thin strand tube
+  const tentBudget = opts.tentDotBudget ?? 1560; // bell + tentacles ≈ 3290
   const baseB = opts.bellRadius ?? 1.6;
 
   const rng = mulberry32(seed);
@@ -59,7 +67,15 @@ export function makeMedusa(seed, opts = {}) {
     seedAng[k] = rng() * TAU;
   }
   const tentStations = Math.round(tentBudget / (tentDotsPerRing * T));
-  const count = bellCount + T * tentStations * tentDotsPerRing; // ~1500
+  // Arc sampling must stay AHEAD of the station count, or two stations share
+  // one sample interval and the equal-arc-length inversion (spec §6) can no
+  // longer resolve them. v3.1's flat 60 was ahead of 29 stations; at up to 65
+  // it no longer is, hence the floor. Only a floor, not a ratio: measured
+  // against a 500-sample build, tentacle dots move <0.05% of extent, so extra
+  // samples here buy nothing but Math.sin calls. Pure function of (opts, draw
+  // 7) — no RNG, so counts still never vary by machine (spec §8/§9).
+  const tentSample = Math.max(opts.tentSampleCount ?? 60, tentStations + 4);
+  const count = bellCount + T * tentStations * tentDotsPerRing; // ~3290
   const sizeJit = new Float32Array(count); //            next count draws
   for (let d = 0; d < count; d++) sizeJit[d] = 0.75 + 0.5 * rng();
   const twPhase = new Float32Array(count); //            next count draws

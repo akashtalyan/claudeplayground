@@ -20,7 +20,7 @@ import { initPlate } from './ui/plate.js';
 import { initRotary } from './ui/rotary.js';
 import { initAmbient } from './ui/ambient.js';
 import { initLabels } from './ui/labels.js';
-import { initFeeding } from './feeding.js';
+import { initGather } from './gather.js';
 import { initCapture } from './capture.js';
 import { createGovernor } from './governor.js';
 
@@ -104,7 +104,7 @@ function boot() {
   let nextId = 1; // creature ids ('c1', 'c2', ...) for the controls API
   let maxAlive = MAXC; // Phase F governor lever 5 (14 -> 10)
   let controls = null; // assigned after the pipeline exists
-  let feeding = null; // Phase E mote (assigned with the UI, board mode only)
+  let gather = null; // v3.2 gather beacon (assigned with the UI, board mode only)
   let capture = null; // Phase E snapshot/record I/O (board mode only)
 
   function parseFloatOr(v, d) {
@@ -264,7 +264,7 @@ function boot() {
       if (b === 'sleep') return this.applySleep(t, dt);
       // Phase E: a dropped mote temporarily overrides swimmer motion (checked
       // after sleep so sleepers never wake; behavior itself is untouched)
-      if (feeding && feeding.overrideMotion(this, t, dt)) return;
+      if (gather && gather.steer(this, t, dt)) return;
       if (b === 'patrol') return this.applyPatrol(t, dt);
       if (b === 'follow') return this.applyFollow(t, dt);
       if (this.klass === 'drifter') {
@@ -948,10 +948,12 @@ function boot() {
       rotary: initRotary(controls),
       ambient: initAmbient(), // registers __menagerie.ui.forceAmbient
     };
-    // ---- Phase E: feeding mote + snapshot/record (board mode only; spike
+    // ---- v3.2: the gather beacon + snapshot/record (board mode only; spike
     // scenes stay pixel-clean and listener-free). Empty-water clicks are
-    // told apart from creature clicks via controls' own hit-test.
-    feeding = initFeeding({
+    // told apart from creature clicks via controls' own hit-test. A click
+    // summons EVERY swimmer and drifter; rooted flora lean toward it and
+    // sleepers never wake (both handled inside gather.steer).
+    gather = initGather({
       scene,
       canvas,
       state,
@@ -1074,7 +1076,7 @@ function boot() {
     const t0 = nowMs();
     background.update(state.simT);
     if (controls) controls.tick(dt); // preset crossfade, current, selection
-    if (feeding) feeding.tick(state.simT, dt); // Phase E mote (injectable clock)
+    if (gather) gather.update(state.simT, dt); // v3.2 beacon (injectable clock)
     // staggered formation ramp: promote due pending spawns
     while (state.pending.length && state.pending[0].due <= state.simT) {
       const { spec } = state.pending.shift();
@@ -1150,7 +1152,7 @@ function boot() {
     rendererString: pipeline.info.rendererString,
     clock: { fixed: fixedStep, stepMany },
     controls, // Phase D control API (the UI chrome's contract)
-    feeding, // Phase E mote (null in spike scenes): drop(x,y) / getMote()
+    gather, // v3.2 beacon (null in spike scenes): setPoint / clear / info / steer
     capture, // Phase E I/O (null in spike scenes): snapshotPNG / toggleRecording
     atmosphere, // Phase E layers (null in spike scenes): caustics/sediment/ao
     // Phase F telemetry (live object, mutated in place): {level, framesMsP50,
@@ -1174,6 +1176,13 @@ function boot() {
         const c = state.creatures.find((cc) => cc.id === id && cc.state === 'alive');
         return c ? { x: c.px, y: c.py, z: c.pz } : null;
       },
+      // v3.2 gather harness hook: every alive creature's id/class/position,
+      // so a test can assert the WHOLE menagerie converged (and that a
+      // sleeper did not move).
+      creatureList: () =>
+        state.creatures
+          .filter((c) => c.state === 'alive')
+          .map((c) => ({ id: c.id, klass: c.klass, behavior: c.ctrl.behavior, x: c.px, y: c.py, z: c.pz })),
       setPlankton: (alpha) => {
         plankton.points.material.uniforms.uAlpha.value = alpha;
       },

@@ -32,8 +32,16 @@ const K_WIG = 2.6;
 const Q_TILT = 0.5 * (1 + SQUASH); // mean ellipse-slope factor for taper tilt
 
 export function makeStar(seed, opts = {}) {
-  const count = opts.count ?? 1100; // TOTAL is fixed — draw counts never vary
-  const armRings = opts.armRings ?? 12;
+  // v3.2 density uplift: 1100 → 2400 (2.18×) with armRings 12 → 22 and the
+  // disc's latitude rings 9 → 13 (below). At 12 rings a 1.8-long arm had a
+  // 0.16 arc pitch — visibly banded; 22 brings it to 0.086, close to the
+  // elliptical ring's own dot pitch, so the arm reads as a tapering flattened
+  // tube instead of a stack of hoops. dotsPerRing still absorbs the arm-count
+  // variation so the TOTAL stays exactly `count` for every seed.
+  const count = opts.count ?? 2400; // TOTAL is fixed — draw counts never vary
+  const armRings = opts.armRings ?? 22;
+  // Arc samples stay at v3.1's 48 — verified shape-neutral at 22 armRings
+  // (vs a 200-sample build: max delta 0.0027 = 0.14% of extent, sway 0/1/2.4).
   const sampleCount = opts.sampleCount ?? 48;
   const baseArmRadius = opts.armRadius ?? 0.17;
   const discRadiusBase = opts.discRadius ?? 0.55;
@@ -81,7 +89,7 @@ export function makeStar(seed, opts = {}) {
   const dSz = new Float32Array(discDots);
   const dRing = new Float32Array(discDots);
   {
-    const nDiscRings = 9;
+    const nDiscRings = 13; // v3.2: 9 → 13, matching the disc's dot budget rise
     let wTot = 0;
     for (let m = 0; m < nDiscRings; m++) wTot += Math.sin(((m + 0.5) / nDiscRings) * Math.PI);
     let cumW = 0;

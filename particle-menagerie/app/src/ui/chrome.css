@@ -155,6 +155,15 @@
    every plate rule). Fidelity: README State B + Interactions. Positioned by
    plate.js via left/top (anchor-follow); surface/sink animate transform +
    filter + opacity via WAAPI, so the two never fight.
+
+   v3.2 — the control FORM changed, the visual LANGUAGE did not. The numeric
+   needle sliders became named-intent rows: Spectral small-caps label, a
+   brass detent strip of notches, the same 2x10px amber gauge needle pointing
+   at the chosen notch, and an IBM Plex Mono WORD where the number used to be.
+   Same glass, same hairlines, same amber, same 400ms rise. The 'more ›'
+   drawer is gone (nothing obscure left to hide: iridescence and dot density
+   are off the surface, depth / doing / color are promoted inline), so
+   re-form and release sit alone under the divider.
    ========================================================================== */
 #plate {
   position: fixed;
@@ -200,9 +209,11 @@
   color: rgba(255, 214, 168, 0.35); /* index-tag ink (README State B) */
 }
 
-/* Gauge sliders: 1px brass track, NO fill; needle = 2x10px amber bar */
-.plate-sliders,
-.plate-more {
+/* ---- intent rows ---------------------------------------------------------
+   One row per axis: label | detent strip | word. Row rhythm stays the
+   design's 11px; the 242px content width divides as
+   44 label + 10 + 82 strip + 10 + 96 word. */
+.plate-intents {
   font-size: 10px;
   letter-spacing: 0.1em;
 }
@@ -211,50 +222,112 @@
   align-items: center;
   gap: 10px;
   margin: 11px 0;
-  cursor: ew-resize;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
   outline: none;
 }
+
+/* Label: Spectral 500 small-caps — the design's label voice (the old numeric
+   rows borrowed mono; named intents read as words, so they get the serif). */
 .plate-label {
   flex: none;
-  width: 42px;
-  color: var(--warm-50);
-}
-.plate-row-adv > .plate-label {
-  width: 78px; /* fits 'iridescence' / 'dot density' at 10px mono +.1em */
+  width: 44px;
   white-space: nowrap;
+  font: 500 10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--warm-50);
+  transition: color var(--hover-ms) ease;
 }
-.plate-track {
+
+/* The whole row is the control: hover / focus lifts the label 50% -> 85%
+   warm white (README hover ramp, 150-200ms ease). */
+.plate-intent {
+  cursor: pointer;
+}
+.plate-intent:hover .plate-label,
+.plate-intent:focus-visible .plate-label {
+  color: var(--warm-85);
+}
+
+/* Detent strip: the old 1px brass track, now marked with one hairline notch
+   per named choice. Notches tile the strip as equal hit cells (flex: 1), so
+   every word is a comfortable click target and notch i sits at (i+.5)/n. */
+.plate-notches {
   position: relative;
   flex: 1;
-  height: 1px;
-  background: var(--brass-20);
+  min-width: 40px;
+  height: 14px;
+  display: flex;
+  align-items: center;
 }
+.plate-notches::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--brass-14);
+}
+.plate-notch {
+  position: relative;
+  flex: 1;
+  height: 100%;
+}
+.plate-notch::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 5px;
+  transform: translate(-50%, -50%);
+  background: var(--brass-20);
+  transition: background var(--hover-ms) ease, height var(--hover-ms) ease;
+}
+.plate-notch:hover::before {
+  height: 7px;
+  background: var(--brass-50);
+}
+
+/* The gauge needle survives verbatim (2x10px amber bar + glow) — it just
+   points at a word now. Centered on its notch, so it may sit half a cell
+   outside the strip while the felt-detent spring overshoots. */
 .plate-needle {
   position: absolute;
-  top: -4.5px;
+  top: 50%;
+  margin-top: -5px;
   width: 2px;
   height: 10px;
+  transform: translateX(-50%);
   background: var(--amber);
   box-shadow: var(--glow-7);
+  pointer-events: none;
 }
+
+/* The readout: a word, not a number. IBM Plex Mono, amber phosphor, right
+   aligned — same ink and alignment the numeric value had. 96px fits the
+   longest intent ('following you') at 10px +.1em. */
 .plate-value {
   flex: none;
-  width: 24px;
+  width: 96px;
   text-align: right;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.1em;
   color: var(--amber);
 }
 
-/* Divider between the gauges and the actions row */
+/* Divider between the intent rows and the actions row */
 .plate-divider {
   height: 1px;
   background: var(--brass-14);
   margin: 13px 0;
 }
 
-/* Actions: re-form / release / more › (hover via shared .chrome-action) */
+/* Actions: re-form / release (hover via shared .chrome-action) */
 .plate-actions {
   display: flex;
   gap: 14px;
@@ -262,62 +335,8 @@
   letter-spacing: 0.1em;
 }
 
-/* 'more ›' drawer — twinkle / iridescence / dot density / depth + the
-   behavior rotary + the color swatch row. NEVER inline (design law). */
-.plate-more {
-  display: none;
-}
-#plate.more-open .plate-more {
-  display: block;
-  border-top: 1px solid var(--brass-14); /* same hairline idiom as the divider */
-  margin-top: 13px;
-}
-
-/* Behavior: ONE 5-notch rotary (drift/patrol/follow/school/sleep) — same
-   tick-ring idiom as the weather rotary; plate.js rotates .plate-rotary-ticks
-   to the active notch (72 deg per notch) with a felt-detent settle. */
-.plate-behavior {
-  cursor: default;
-  justify-content: space-between;
-}
-.plate-rot-arrow {
-  flex: none;
-  padding: 0 2px;
-}
-.plate-rotary {
-  position: relative;
-  flex: none;
-  width: 40px;
-  height: 40px;
-  cursor: pointer;
-}
-.plate-rotary-ticks {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: repeating-conic-gradient(
-    var(--brass-30) 0deg 1.6deg,
-    transparent 1.6deg 72deg
-  );
-  will-change: transform;
-}
-.plate-rotary-disc {
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: var(--rotary-disc);
-}
-.plate-rotary-word {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font: italic 400 8px var(--font-serif);
-  color: var(--amber-bright);
-}
-
-/* Color: compact swatch row (v2 palette; null = monochrome default) */
+/* Color: compact swatch row (v2 palette; null = monochrome default). Promoted
+   inline with the intents — a hue is visual, never a number. */
 .plate-colors {
   cursor: default;
 }

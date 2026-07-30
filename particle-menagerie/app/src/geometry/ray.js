@@ -14,8 +14,14 @@ const WU = WF * W_RATIO;
 const SWAY_MAX = 2.4; // slider 2.4 = max safe sway (spec §5 normalization)
 
 export function makeRay(seed, opts = {}) {
-  const nU = opts.spanDots ?? 40; // spanwise stations (u lines)
-  const nV = opts.chordDots ?? 30; // chordwise rows (v lines)
+  // v3.2 density uplift: 40×30 (1200) → 58×42 (2436). Both grid directions go
+  // up ~1.45×, so the (u,v) cells stay near-square (span 5.2/57 ≈ 0.091 vs
+  // chord 2.4/41 ≈ 0.059 at the root, tighter at the tips where the chord
+  // narrows) — the wing reads as a finer dotted membrane, and the quantized
+  // v-lines stay legible as ribs (spec §7). Draw ORDER unchanged (spec §8);
+  // only the count-sized blocks (sizeJit / twPhase / perm) lengthen.
+  const nU = opts.spanDots ?? 58; // spanwise stations (u lines)
+  const nV = opts.chordDots ?? 42; // chordwise rows (v lines)
   const count = nU * nV;
   const ringCount = nV; // "rings" = quantized chordwise v-lines, front→back
   const span = opts.span ?? 5.2;

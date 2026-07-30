@@ -5,12 +5,20 @@
 //
 //   select / getSelected / onSelectionChange / screenAnchor
 //   setParam / getParam / paramRange
+//   setIntent / getIntent / intentAxes      <- v3.2 intent layer
 //   setPreset / getPreset / presetNames
 //   summon / reform / release / onSummon
 //   serialize / restore
 //
 // plus tick(dt), the per-frame hook main.js drives (preset crossfade,
 // current drift, selection liveness).
+//
+// v3.2: the console speaks in INTENTS, not numbers. setParam is still the
+// only thing that touches a creature (the harness, the URL hash and the
+// presets all ride it); the intent layer sits strictly on top, mapping one
+// named choice to the several engine params it really means. Because intents
+// are derived from params (nearestOption), a raw setParam from anywhere
+// leaves the plate reading the nearest intent instead of going stale.
 
 import * as THREE from 'three';
 
@@ -52,6 +60,166 @@ export const PARAM_RANGES = {
 function clampParam(key, v) {
   const r = PARAM_RANGES[key];
   return Math.min(r.max, Math.max(r.min, v));
+}
+
+// ---- intent layer (v3.2) --------------------------------------------------
+// Named intents replace the numeric gauge sliders on the plate. An axis is a
+// small ordered list of options; each option is a concrete param set. Two
+// invariants make this safe to bolt onto the existing param API:
+//
+//   1. Every axis' DEFAULT option is param-identical to defaultCtrl(), so a
+//      fresh creature reads as a sentence of defaults ("calm / glowing /
+//      normal / mid / drifting") and serializes to the empty string.
+//   2. Intent state is never stored — getIntent derives it from the live
+//      params (nearestOption). Presets, URL restores and raw setParam calls
+//      therefore cannot desync the plate.
+//
+// Axis keys are disjoint (motion owns tempo+sway, light owns glow+twinkle,
+// …) so no two axes can fight over a param.
+//
+// iridescence and dot-density are deliberately NOT on any axis: they are
+// off the visible surface in v3.2 (obscure controls, user's verdict). The
+// engine params and their hash codes stay intact so old URLs still restore.
+export const INTENT_AXES = [
+  {
+    id: 'motion',
+    label: 'motion',
+    keys: ['tempo', 'sway'],
+    options: [
+      { id: 'still', params: { tempo: 0.25, sway: 0.1 } },
+      { id: 'calm', params: { tempo: 1, sway: 1 } },
+      { id: 'lively', params: { tempo: 1.6, sway: 1.55 } },
+      { id: 'frantic', params: { tempo: 2.5, sway: 2.4 } },
+    ],
+  },
+  {
+    id: 'light',
+    label: 'light',
+    keys: ['glow', 'twinkle'],
+    options: [
+      { id: 'ghostly', params: { glow: 0.35, twinkle: 0.25 } },
+      { id: 'dim', params: { glow: 0.65, twinkle: 0.6 } },
+      { id: 'glowing', params: { glow: 1, twinkle: 1 } },
+      { id: 'radiant', params: { glow: 1.8, twinkle: 1.7 } },
+    ],
+  },
+  {
+    id: 'size',
+    label: 'size',
+    keys: ['size'],
+    options: [
+      { id: 'tiny', params: { size: 0.45 } },
+      { id: 'small', params: { size: 0.7 } },
+      { id: 'normal', params: { size: 1 } },
+      { id: 'large', params: { size: 1.7 } },
+      { id: 'giant', params: { size: 2.8 } },
+    ],
+  },
+  {
+    id: 'depth',
+    label: 'depth',
+    keys: ['depth'],
+    options: [
+      { id: 'near', params: { depth: -0.7 } },
+      { id: 'mid', params: { depth: 0 } },
+      { id: 'far', params: { depth: 0.75 } },
+    ],
+  },
+  {
+    // the old behavior rotary, promoted out of the drawer — it was always the
+    // most legible control in the set, and it was already a named intent.
+    id: 'doing',
+    label: 'doing',
+    keys: ['behavior'],
+    options: [
+      { id: 'drifting', params: { behavior: 'drift' } },
+      { id: 'patrolling', params: { behavior: 'patrol' } },
+      { id: 'following you', params: { behavior: 'follow' } },
+      { id: 'schooling', params: { behavior: 'school' } },
+      { id: 'sleeping', params: { behavior: 'sleep' } },
+    ],
+  },
+];
+
+const AXIS_BY_ID = {};
+for (const ax of INTENT_AXES) AXIS_BY_ID[ax.id] = ax;
+
+function optionOf(ax, id) {
+  for (let i = 0; i < ax.options.length; i++) if (ax.options[i].id === id) return ax.options[i];
+  return null;
+}
+
+// Exact param match (used by the hash encoder): the ctrl sits precisely on
+// one option, so the option word can stand in for its param codes.
+function exactOption(ax, ctrl) {
+  for (let i = 0; i < ax.options.length; i++) {
+    const o = ax.options[i];
+    let hit = true;
+    for (let j = 0; j < ax.keys.length; j++) {
+      const k = ax.keys[j];
+      const t = o.params[k];
+      if (typeof t === 'string') {
+        if (ctrl[k] !== t) { hit = false; break; }
+      } else if (!(Math.abs(ctrl[k] - t) <= 1e-3)) {
+        hit = false;
+        break;
+      }
+    }
+    if (hit) return o.id;
+  }
+  return null;
+}
+
+// Nearest option in range-normalized param space — what the plate displays
+// for an arbitrary param set (a legacy URL, a preset, a raw setParam).
+// Allocation-free: the plate calls this every frame while a creature is
+// selected. Ties resolve to the earlier option, so it is deterministic.
+export function nearestOption(ax, ctrl) {
+  let best = ax.options[0].id;
+  let bestD = Infinity;
+  for (let i = 0; i < ax.options.length; i++) {
+    const o = ax.options[i];
+    let d = 0;
+    for (let j = 0; j < ax.keys.length; j++) {
+      const k = ax.keys[j];
+      const t = o.params[k];
+      if (typeof t === 'string') {
+        d += ctrl[k] === t ? 0 : 1;
+      } else {
+        const r = PARAM_RANGES[k];
+        const e = (ctrl[k] - t) / (r.max - r.min);
+        d += e * e;
+      }
+    }
+    if (d < bestD) {
+      bestD = d;
+      best = o.id;
+    }
+  }
+  return best;
+}
+
+const DEFAULTS = defaultCtrl();
+
+// Each axis' default option — asserted param-identical to defaultCtrl() at
+// module load, because the hash encoder depends on it (a default axis must
+// serialize to nothing) and a mismatch would be a silent authoring bug.
+const AXIS_DEFAULT = {};
+for (const ax of INTENT_AXES) {
+  const d = exactOption(ax, DEFAULTS);
+  if (!d) throw new Error(`intent axis '${ax.id}' has no option matching defaultCtrl()`);
+  AXIS_DEFAULT[ax.id] = d;
+}
+
+// Descriptor list for the UI: plain data, built once when the plate mounts.
+export function intentAxisList() {
+  return INTENT_AXES.map((ax) => ({
+    id: ax.id,
+    label: ax.label,
+    keys: ax.keys.slice(),
+    options: ax.options.map((o) => o.id),
+    default: AXIS_DEFAULT[ax.id],
+  }));
 }
 
 // ---- weather presets ------------------------------------------------------
@@ -154,26 +322,63 @@ function easeInOut(t) {
 //   #<names csv>[;p=<preset>][;<ordinal>=<code>:<val>,<code>:<val>...]...
 // Ordinals index the flattened spawn order of the names csv (per-batch
 // instances in order), so restore is deterministic. Only non-default values
-// are serialized.
+// are serialized. v3.2 adds intent codes to the <code>:<val> alphabet (see
+// INTENT_CODES below) — 'm:frantic' where v3.1 wrote 't:2.5,w:2.4'. Both
+// alphabets decode, so every v2/v3.1 link still restores exactly.
 const CTRL_CODES = [
   ['color', 'c'], ['glow', 'g'], ['tempo', 't'], ['sway', 'w'], ['size', 's'],
   ['twinkle', 'k'], ['iridescence', 'i'], ['density', 'd'], ['depth', 'z'],
   ['behavior', 'b'],
 ];
 
+const CODE_OF = {};
+for (const [key, code] of CTRL_CODES) CODE_OF[key] = code;
+
+// v3.2 intent codes: when a ctrl sits exactly on one intent option, the axis
+// serializes as ONE readable word instead of its param codes — 'm:frantic'
+// for 't:2.5,w:2.4'. Shared links read as sentences, and the encoding is
+// idempotent (decode writes the option's exact params, so re-encode finds the
+// same exact option again -> serialize round-trips byte-for-byte).
+//
+// The 'doing' axis is intentionally absent: behavior's own 'b:' code is
+// already a word, so an intent code would only make the hash longer.
+//
+// Backward compatibility is total in BOTH directions: decodeCtrl still reads
+// every legacy raw code, and any ctrl that is NOT exactly on an option still
+// serializes with the legacy raw codes.
+const INTENT_CODES = [
+  ['motion', 'm'], ['light', 'l'], ['size', 'x'], ['depth', 'e'],
+];
+const AXIS_OF_CODE = {};
+for (const [axisId, code] of INTENT_CODES) AXIS_OF_CODE[code] = axisId;
+
+function rawPart(key, ctrl) {
+  const v = ctrl[key];
+  const code = CODE_OF[key];
+  if (key === 'behavior') return v !== DEFAULTS.behavior ? code + ':' + v : null;
+  if (key === 'color') return v != null ? code + ':' + Math.round(v) : null;
+  return Math.abs(v - DEFAULTS[key]) > 1e-3 ? code + ':' + +v.toFixed(2) : null;
+}
+
 export function encodeCtrl(ctrl) {
-  const d = defaultCtrl();
   const out = [];
-  for (const [key, code] of CTRL_CODES) {
-    const v = ctrl[key];
-    if (key === 'behavior') {
-      if (v !== d.behavior) out.push(code + ':' + v);
-    } else if (key === 'color') {
-      if (v != null) out.push(code + ':' + Math.round(v));
-    } else if (Math.abs(v - d[key]) > 1e-3) {
-      out.push(code + ':' + +v.toFixed(2));
+  const push = (p) => {
+    if (p) out.push(p);
+  };
+  push(rawPart('color', ctrl));
+  for (const [axisId, code] of INTENT_CODES) {
+    const ax = AXIS_BY_ID[axisId];
+    const exact = exactOption(ax, ctrl);
+    if (exact) {
+      // default axis -> nothing to say (only non-defaults are serialized)
+      if (exact !== AXIS_DEFAULT[axisId]) out.push(code + ':' + exact);
+    } else {
+      for (const k of ax.keys) push(rawPart(k, ctrl)); // off-intent: raw codes
     }
   }
+  push(rawPart('iridescence', ctrl)); // off-surface in v3.2, still persisted
+  push(rawPart('density', ctrl));
+  push(rawPart('behavior', ctrl)); // the 'doing' axis, already a word
   return out.join(',');
 }
 
@@ -184,6 +389,13 @@ export function decodeCtrl(str) {
     if (i < 0) continue;
     const code = pair.slice(0, i);
     const raw = pair.slice(i + 1);
+    const axisId = AXIS_OF_CODE[code];
+    if (axisId) {
+      const ax = AXIS_BY_ID[axisId];
+      const o = optionOf(ax, raw);
+      if (o) for (const k of ax.keys) ctrl[k] = clampParam(k, o.params[k]);
+      continue;
+    }
     const entry = CTRL_CODES.find((e) => e[1] === code);
     if (!entry) continue;
     const key = entry[0];
@@ -211,8 +423,18 @@ export function createControls(engine) {
 
   const alive = () =>
     state.creatures.filter((c) => c.state === 'alive' && c.klass !== 'legacy');
-  const byId = (id) =>
-    state.creatures.find((c) => c.id === id && c.state === 'alive') || null;
+  // plain loop, not .find(arrow): byId sits on per-frame paths (screenAnchor
+  // for the plate + labels, getParam/getIntent for the plate rows) and a
+  // predicate closure per call is an allocation the frame budget forbids.
+  function byId(id) {
+    if (id == null) return null;
+    const list = state.creatures;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (c.id === id && c.state === 'alive') return c;
+    }
+    return null;
+  }
 
   // ---- projection: creature center -> CSS px anchor -----------------------
   // anchorInto is the no-alloc path: callers that run per frame (hitTest,
@@ -264,11 +486,16 @@ export function createControls(engine) {
   function getSelected() {
     const c = byId(selectedId);
     if (!c) return null;
+    // intents: the derived named view of params, so the plate can populate in
+    // one read. Not per-frame (selection change only), so the objects are fine.
+    const intents = {};
+    for (const ax of INTENT_AXES) intents[ax.id] = nearestOption(ax, c.ctrl);
     return {
       id: c.id,
       name: c.spec.name || c.spec.kind,
       indexTag: indexTagOf(c),
       params: { ...c.ctrl },
+      intents,
     };
   }
 
@@ -316,6 +543,27 @@ export function createControls(engine) {
   function getParam(id, key) {
     const c = byId(id);
     return c ? c.ctrl[key] : undefined;
+  }
+
+  // ---- intents (v3.2) -----------------------------------------------------
+  // setIntent is pure sugar over setParam: one named choice, N params, one
+  // save. Nothing stores the choice — getIntent re-derives it, so the plate
+  // stays truthful no matter who moved the params.
+  function setIntent(id, axisId, value) {
+    const ax = AXIS_BY_ID[axisId];
+    if (!ax) return false;
+    const o = optionOf(ax, value);
+    if (!o) return false;
+    let ok = false;
+    for (const k of ax.keys) if (setParam(id, k, o.params[k])) ok = true;
+    return ok;
+  }
+
+  function getIntent(id, axisId) {
+    const c = byId(id);
+    const ax = AXIS_BY_ID[axisId];
+    if (!c || !ax) return null;
+    return nearestOption(ax, c.ctrl);
   }
 
   // ---- weather presets ----------------------------------------------------
@@ -497,10 +745,14 @@ export function createControls(engine) {
       const c = byId(id);
       return c ? (out ? anchorInto(c, out) : anchor(c)) : null;
     },
-    // params
+    // params (unchanged surface — harness / presets / hash all ride this)
     setParam,
     getParam,
     paramRange: (key) => PARAM_RANGES[key] || null,
+    // intents (v3.2) — the named layer the gauge plate speaks in
+    setIntent,
+    getIntent,
+    intentAxes: intentAxisList,
     // presets
     setPreset,
     getPreset: () => targetPreset,

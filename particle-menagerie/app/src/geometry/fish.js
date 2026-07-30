@@ -50,24 +50,37 @@ for (const k of Object.keys(FISH_MORPHS)) {
 }
 
 export function makeFish(seed, opts = {}) {
-  const ringCount = opts.ringCount ?? 36;
-  const dotsPerRing = opts.dotsPerRing ?? 18;
+  // v3.2 density uplift, per part (fish was the LEAST dense archetype and it
+  // carries 8 named species, so it gets the biggest lift):
+  //   body   36×18 = 648 → 52×26 = 1352   (rib pitch 3.0/51 ≈ 0.059 vs
+  //          circumferential ≈ 0.085 at the thickest station — ribs stay the
+  //          dominant read, which is what makes a fish body legible)
+  //   dorsal 12×5  =  60 → 18×8  =  144   pectorals 2×8×6 = 96 → 2×12×9 = 216
+  //   caudal  9×8  =  72 → 14×12 =  168   (fork edge gets real resolution)
+  // 876 → 1880 (~2.15×). Fins scale slightly harder than the body because at
+  // 5-8 rows they were the parts that read as loose dot scatter, not sheets.
+  const ringCount = opts.ringCount ?? 52;
+  const dotsPerRing = opts.dotsPerRing ?? 26;
   const bodyCount = ringCount * dotsPerRing;
   // fin grids (sheet patches)
-  const nDu = opts.dorsalSpan ?? 12; //   dorsal: stations along the back
-  const nDv = opts.dorsalRows ?? 5; //            rows up the sail
-  const nPu = opts.pectoralSpan ?? 8; //  pectoral: stations along the span
-  const nPv = opts.pectoralRows ?? 6; //           rows across the chord
-  const nCu = opts.caudalRays ?? 9; //    caudal: rays across the fork (v-dir)
-  const nCv = opts.caudalRows ?? 8; //            rows back from the peduncle
+  const nDu = opts.dorsalSpan ?? 18; //   dorsal: stations along the back
+  const nDv = opts.dorsalRows ?? 8; //            rows up the sail
+  const nPu = opts.pectoralSpan ?? 12; // pectoral: stations along the span
+  const nPv = opts.pectoralRows ?? 9; //           rows across the chord
+  const nCu = opts.caudalRays ?? 14; //   caudal: rays across the fork (v-dir)
+  const nCv = opts.caudalRows ?? 12; //           rows back from the peduncle
   const dorsalCount = nDu * nDv;
   const pectCount = 2 * nPu * nPv;
   const caudCount = nCu * nCv;
-  const count = bodyCount + dorsalCount + pectCount + caudCount; // 876 default
+  const count = bodyCount + dorsalCount + pectCount + caudCount; // 1880 default
   // NOTE: count is identical for every morph — morphs change dimensions, not
   // dot counts, so the RNG draw structure below stays fixed (spec §8).
   const bodyLen0 = opts.bodyLength ?? 3.0;
   const baseRadius0 = opts.radius ?? 0.46; // vertical half-height (deep body)
+  // Arc samples stay at v3.1's 200 (spec §6). Verified shape-neutral at the new
+  // 52 stations: vs a 600-sample build, 240 frames at sway 0/1/2.4, max
+  // position delta is 0.005 = 0.25% of extent (worst case marlin) — the §5
+  // curvature clamp does not get noisier, so the sampler keeps its v3.1 cost.
   const sampleCount = opts.sampleCount ?? 200;
 
   const rng = mulberry32(seed);

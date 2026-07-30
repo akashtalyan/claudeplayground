@@ -9,11 +9,23 @@ import { createSpine, makeRingTables, KAPPA_R_MAX, RING_SHRINK, TAU } from './sp
 const W_RATIO = Math.SQRT2 * 1.618033988749895;
 
 export function makeEel(seed, opts = {}) {
-  const ringCount = opts.ringCount ?? 52;
-  const dotsPerRing = opts.dotsPerRing ?? 24;
+  // v3.2 density uplift: 52×24 (1248) → 80×32 (2560), a uniform ~1.5× linear
+  // refinement in BOTH directions, so ribs get finer without the tube going
+  // stripy: rib pitch 6.0/79 ≈ 0.076 vs circumferential 2πr/32 ≈ 0.078 at the
+  // fullest station — isotropic dot spacing is what reads as "finer detail"
+  // rather than "mush". Ring QUANTIZATION is untouched (spec §7).
+  // Only the count-sized RNG blocks (sizeJit / twPhase / perm) change length;
+  // the draw ORDER and block structure are byte-for-byte the same (spec §8).
+  const ringCount = opts.ringCount ?? 80;
+  const dotsPerRing = opts.dotsPerRing ?? 32;
   const count = ringCount * dotsPerRing;
   const bodyLen = opts.bodyLength ?? 6.0;
   const baseRadius = opts.radius ?? 0.4;
+  // Arc samples stay at v3.1's 200 (spec §6's "~200"). The worry was that κ is
+  // differenced over the now-finer station pitch, so a starved sampler would
+  // make κ noisy and the §5 sway clamp bite harder — a denser eel that sways
+  // LESS. Measured against a 600-sample build over 240 frames at sway 0/1/2.4:
+  // max position delta 0.0014 = 0.05% of extent. It doesn't; 200 is plenty.
   const sampleCount = opts.sampleCount ?? 200;
 
   const rng = mulberry32(seed);

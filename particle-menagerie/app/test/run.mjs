@@ -337,34 +337,38 @@ async function main() {
         await step(20);
         await shot('plate-open.png');
 
-        // -- drive a slider row with a REAL pointer drag; assert live param
-        s.knobs = {};
-        const drive = async (key) => {
-          const before = await page.evaluate((k) => window.__menagerie.controls.getParam('c1', k), key);
-          const box = await page.locator(`#plate .plate-row[data-key="${key}"] .plate-track`).boundingBox();
-          const y = box.y + box.height / 2;
-          await page.mouse.move(box.x + box.width * 0.2, y);
-          await page.mouse.down();
-          await page.mouse.move(box.x + box.width * 0.85, y, { steps: 4 });
-          await page.mouse.up();
-          await page.waitForTimeout(500); // needle spring settles on wall clock
-          const after = await page.evaluate((k) => window.__menagerie.controls.getParam('c1', k), key);
-          s.knobs[key] = { before, after };
-          if (!(Math.abs(after - before) > 1e-3)) throw new Error(`dead knob: ${key} (${before} -> ${after})`);
-        };
-        for (const k of ['glow', 'tempo', 'sway', 'size']) await drive(k);
-
-        // -- 'more ›' drawer: 4 advanced sliders + behavior rotary + swatch
-        await page.locator('#plate .plate-actions [data-act="more"]').click();
-        await page.waitForTimeout(600); // plate re-centers on its anchor (height grew)
-        for (const k of ['twinkle', 'iridescence', 'density', 'depth']) await drive(k);
-
-        const behBefore = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'behavior'));
-        await page.locator('#plate .plate-behavior .plate-rot-arrow').nth(1).click(); // ›
-        await page.waitForTimeout(400); // rotary detent settle
-        const behAfter = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'behavior'));
-        s.behavior = { before: behBefore, after: behAfter };
-        if (behAfter === behBefore) throw new Error('dead knob: behavior rotary');
+        // -- v3.2: drive every INTENT axis by clicking a notch; assert both
+        // the named word AND the underlying params actually changed. A row
+        // whose word moves but whose params don't is the new dead knob.
+        s.intents = {};
+        const axes = await page.evaluate(() => window.__menagerie.controls.intentAxes());
+        if (!axes.length) throw new Error('no intent axes exposed');
+        const readAxis = (axis) =>
+          page.evaluate(
+            (a) => {
+              const c = window.__menagerie.controls;
+              const params = {};
+              for (const k of a.keys) params[k] = c.getParam('c1', k);
+              return { word: c.getIntent('c1', a.id), params };
+            },
+            { id: axis.id, keys: axis.keys },
+          );
+        for (const axis of axes) {
+          const before = await readAxis(axis);
+          // pick a notch that is NOT the current one (last, else first)
+          const n = axis.options.length;
+          const curIdx = axis.options.indexOf(before.word);
+          const target = curIdx === n - 1 ? 0 : n - 1;
+          await page.locator(`#plate .plate-row[data-axis="${axis.id}"] .plate-notch[data-i="${target}"]`).click();
+          await page.waitForTimeout(500); // needle spring settles (wall clock)
+          const after = await readAxis(axis);
+          const paramsChanged = axis.keys.some(
+            (k) => String(after.params[k]) !== String(before.params[k]),
+          );
+          s.intents[axis.id] = { before: before.word, after: after.word, paramsChanged };
+          if (after.word === before.word) throw new Error(`dead intent: ${axis.id} word never changed (${before.word})`);
+          if (!paramsChanged) throw new Error(`dead intent: ${axis.id} changed its word (${before.word} -> ${after.word}) but no engine param moved`);
+        }
 
         await page.locator('#plate .plate-swatch').nth(3).click(); // hue 185 (cyan)
         const hue = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'color'));
@@ -548,41 +552,62 @@ async function main() {
         }
       });
 
-      // ---- 13. Phase E feeding: a dropped mote pulls the swimmer in -------
-      await scenario('feeding', async (s) => {
-        await load('fixedstep=1&board=fish');
-        await step(280); // formation completes, fish roams
-        const drop = await page.evaluate(() => {
+      // ---- 13. v3.2 gather: a click summons the WHOLE menagerie -----------
+      // Asserts (a) every swimmer/drifter closes on the beacon, (b) a
+      // sleeping creature is exempt, (c) they spread around the point rather
+      // than stacking, (d) after the beacon expires they resume roaming.
+      await scenario('gather', async (s) => {
+        await load('fixedstep=1&board=fish,eel,jellyfish,octopus,kelp');
+        await step(340); // formations complete, swimmers roam apart
+        const setup = await page.evaluate(() => {
           const m = window.__menagerie;
-          const a = m.controls.screenAnchor('c1');
-          const x = Math.min(Math.max(a.x + 170, 80), innerWidth - 80);
-          const y = Math.min(Math.max(a.y - 90, 80), innerHeight - 140);
-          m.feeding.drop(x, y);
-          return { p: m.test.creaturePos('c1'), mote: m.feeding.getMote() };
+          const list = m.test.creatureList();
+          // put one swimmer to sleep — it must NOT answer the summons
+          const sleeper = list.find((c) => c.klass === 'swimmer');
+          if (sleeper) m.controls.setParam(sleeper.id, 'behavior', 'sleep');
+          m.gather.setPoint(260, -40, -60); // world px, off to one side
+          return { list: m.test.creatureList(), sleeperId: sleeper ? sleeper.id : null, pt: { x: 260, y: -40, z: -60 } };
         });
-        const d0 = Math.hypot(drop.p.x - drop.mote.x, drop.p.y - drop.mote.y, drop.p.z - drop.mote.z);
-        s.distStart = d0;
-        await step(15); // quarter-second in: mote pulsing, fish breaking drift
-        await shot('feeding.png');
-        let eaten = false;
-        let dMin = d0;
-        for (let i = 0; i < 12; i++) {
-          await step(30); // 0.5 s sim-time per check
-          const r = await page.evaluate(() => {
-            const m = window.__menagerie;
-            return { p: m.test.creaturePos('c1'), mote: m.feeding.getMote() };
-          });
-          if (!r.mote || r.mote.phase !== 'sink') {
-            eaten = true; // consumed (burst) — the strongest convergence proof
-            break;
-          }
-          dMin = Math.min(dMin, Math.hypot(r.p.x - r.mote.x, r.p.y - r.mote.y, r.p.z - r.mote.z));
+        const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+        const d0 = new Map(setup.list.map((c) => [c.id, dist(c, setup.pt)]));
+        const sleeperStart = setup.list.find((c) => c.id === setup.sleeperId);
+        await step(40);
+        await shot('gather-converge.png');
+        await step(200); // ~4 s sim-time of converging
+        const mid = await page.evaluate(() => window.__menagerie.test.creatureList());
+        await shot('gather-converge.png');
+
+        const movers = mid.filter((c) => c.klass !== 'rooted' && c.id !== setup.sleeperId);
+        const closed = movers.filter((c) => dist(c, setup.pt) < d0.get(c.id) * 0.75);
+        s.movers = movers.length;
+        s.closed = closed.length;
+        s.distances = movers.map((c) => ({ id: c.id, from: Math.round(d0.get(c.id)), to: Math.round(dist(c, setup.pt)) }));
+        if (movers.length < 3) throw new Error(`gather: expected several swimmers, saw ${movers.length}`);
+        if (closed.length < movers.length) {
+          throw new Error(`gather: only ${closed.length}/${movers.length} creatures closed on the beacon: ${JSON.stringify(s.distances)}`);
         }
-        s.eaten = eaten;
-        s.distMin = dMin;
-        if (!eaten && !(dMin < d0 * 0.55)) {
-          throw new Error(`swimmer did not converge on the mote: ${d0.toFixed(0)} -> min ${dMin.toFixed(0)} world px`);
+        // sleeper exemption
+        if (sleeperStart) {
+          const now = mid.find((c) => c.id === setup.sleeperId);
+          const drift = now ? dist(now, sleeperStart) : 0;
+          s.sleeperDrift = Math.round(drift);
+          const sleeperClosed = now && dist(now, setup.pt) < d0.get(setup.sleeperId) * 0.75;
+          if (sleeperClosed) throw new Error('gather: a sleeping creature answered the summons (it must not wake)');
         }
+        // spread: they must mill AROUND the point, not stack on one pixel
+        const spread = Math.max(...movers.map((c) => dist(c, setup.pt)));
+        s.spreadPx = Math.round(spread);
+        if (!(spread > 12)) throw new Error(`gather: creatures stacked on the point (max radius ${spread.toFixed(0)}px)`);
+        // resume: past the beacon's life they go back to their own business
+        await step(700); // ~12 s sim-time — beacon expires, crowd disperses
+        const after = await page.evaluate(() => ({
+          list: window.__menagerie.test.creatureList(),
+          active: window.__menagerie.gather.active(),
+        }));
+        s.beaconActiveAfter = after.active;
+        const dispersed = after.list.filter((c) => c.klass !== 'rooted').some((c) => dist(c, setup.pt) > 40);
+        if (after.active) throw new Error('gather: beacon never expired');
+        if (!dispersed) throw new Error('gather: creatures never resumed roaming after the beacon expired');
       });
 
       // ---- 14. Phase E capture: PNG blob + 2 s WebM recording -------------
@@ -698,7 +723,7 @@ async function main() {
       await server.close().catch(() => {});
     }
   } else {
-    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'feeding', 'capture', 'soakE', 'resize']) {
+    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'gather', 'capture', 'soakE', 'resize']) {
       report.scenarios[name] = { pass: false, error: 'skipped: build failed' };
     }
   }

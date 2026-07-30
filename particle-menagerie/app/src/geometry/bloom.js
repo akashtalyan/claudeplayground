@@ -81,12 +81,24 @@ MORPH_BY_SEED.set(hashName('sea anemones'), BLOOM_MORPHS.anemone);
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 export function makeBloom(seed, opts = {}) {
-  const stemRings = opts.stemRings ?? 16;
-  const dotsPerStemRing = opts.dotsPerStemRing ?? 10;
-  const coreRings = opts.coreRings ?? 4;
-  const coreDotsPerRing = opts.coreDotsPerRing ?? 20;
-  const petalCols = opts.petalCols ?? 6; // quantized v-columns per petal (§7)
-  const petalBudget = opts.petalBudget ?? 1160;
+  // v3.2 density uplift, per part:
+  //   stem   16×10 = 160 → 26×12 = 312  (rib pitch 2.3/25 ≈ 0.092 vs
+  //          circumferential 2π·0.09/12 ≈ 0.047 — the stem is thin, so the
+  //          budget goes into rings, kelp-style)
+  //   core    4×20 =  80 →  6×28 = 168  (deliberately the SMALLEST multiplier:
+  //          the crown dome is where short-petal morphs already pile dots, and
+  //          creatures.js had to drop bloom alpha to 0.82 for exactly that)
+  //   petals budget 1160 → 2500, petalCols 6 → 9. Petal cells go near-square:
+  //          at 12 petals that's 23 rows × 9 cols, u pitch 1.15/23 ≈ 0.05 vs
+  //          chord 0.46/9 ≈ 0.051 — the sheet reads as a surface, and the
+  //          quantized v-columns still carry the rib look (§7).
+  // ~1332 → ~2976 at the seed default (2.23×); 2892-3000 across the presets.
+  const stemRings = opts.stemRings ?? 26;
+  const dotsPerStemRing = opts.dotsPerStemRing ?? 12;
+  const coreRings = opts.coreRings ?? 6;
+  const coreDotsPerRing = opts.coreDotsPerRing ?? 28;
+  const petalCols = opts.petalCols ?? 9; // quantized v-columns per petal (§7)
+  const petalBudget = opts.petalBudget ?? 2500;
   const stemLen0 = opts.stemLength ?? 2.3;
   const stemRadius = opts.stemRadius ?? 0.09;
   const petalLen = opts.petalLength ?? 1.15;

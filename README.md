@@ -59,3 +59,24 @@ players see at low reveal, so lead with the silhouette.
 - Passport/stamp collection for solved landmarks
 - Photo cross-fade after solving
 - A GPS mode: the sketch fills in as you physically walk toward a landmark
+
+---
+
+## 🦋 `prototype/collage/` — Specimen collage studio (rough prototype)
+
+A separate, unrelated prototype exploring the screenshot → artistic-collage
+idea. Open `prototype/collage/index.html` — again one file, no build step.
+
+**Layout:** collage stage on the left, control rail on the right.
+
+**What makes the shapes read as real specimens** (rather than a symmetric
+silhouette): every shape is a set of *anatomical parts* — forewing, hindwing,
+thorax/abdomen, hairline antennae — authored as SVG paths in a 1000×1000 local
+space with the body axis at `x=500`. Right-hand parts are authored once and
+mirrored. Each part is masked over its **own** crop of the source image, so an
+eye lands on one wing plate and a mouth on the next. Drawn veins, cross-veins,
+hard scissor edges and a soft cast shadow finish the pinned-specimen look, and
+the four specimens are arranged on a cream mount as a plate.
+
+Shapes: nymphalid butterfly, swallowtail, luna moth, peony bloom (rings of
+overlapping petals). 6 pastel palettes, mosaic tiling, PNG export at 2×.

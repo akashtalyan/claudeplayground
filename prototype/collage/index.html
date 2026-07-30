@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Specimen — collage studio (rough prototype)</title>
+<style>
+  :root{
+    --ink:#2b2622; --ink-soft:#6f665e; --line:#ddd4c8;
+    --panel:#faf7f2; --chrome:#f2ede4; --accent:#7d6b57;
+    --mount:#f4efe4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --ink:#ece6dd; --ink-soft:#a49a8e; --line:#3a352f;
+           --panel:#1c1a18; --chrome:#141312; --accent:#c4ae90; }
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; font:14px/1.45 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:var(--ink); background:var(--chrome);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---- layout: stage left, controls right ---- */
+  .app{ display:grid; grid-template-columns:minmax(0,1fr) 340px; min-height:100vh; }
+  @media (max-width:900px){ .app{ grid-template-columns:1fr; } }
+
+  .stage{
+    position:relative; display:flex; align-items:center; justify-content:center;
+    padding:28px; min-width:0;
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(0,0,0,.04), transparent 60%),
+      var(--chrome);
+  }
+  .plate-wrap{ position:relative; }
+  canvas#plate{
+    display:block; max-width:100%; max-height:calc(100vh - 56px);
+    width:auto; height:auto;
+    box-shadow:0 24px 60px -18px rgba(40,32,24,.45), 0 2px 6px rgba(40,32,24,.18);
+    border-radius:2px; background:var(--mount);
+  }
+  .stage.drop::after{
+    content:"drop an image"; position:absolute; inset:14px;
+    border:2px dashed var(--accent); border-radius:6px;
+    display:grid; place-items:center; font-size:13px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--accent);
+    background:rgba(125,107,87,.08); pointer-events:none;
+  }
+  .stage-foot{
+    position:absolute; left:28px; bottom:8px; font-size:11px; color:var(--ink-soft);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+
+  /* ---- control rail ---- */
+  .rail{
+    background:var(--panel); border-left:1px solid var(--line);
+    padding:18px 18px 28px; overflow-y:auto; max-height:100vh;
+  }
+  @media (max-width:900px){ .rail{ max-height:none; border-left:0; border-top:1px solid var(--line); } }
+  .rail h1{
+    font-size:13px; letter-spacing:.14em; text-transform:uppercase;
+    margin:0 0 2px; font-weight:600;
+  }
+  .rail .sub{ font-size:11.5px; color:var(--ink-soft); margin:0 0 18px; }
+
+  .group{ border-top:1px solid var(--line); padding:14px 0 4px; }
+  .group:first-of-type{ border-top:0; padding-top:0; }
+  .group > label.title{
+    display:block; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-soft); margin-bottom:8px;
+  }
+
+  .chips{ display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .chip{
+    appearance:none; border:1px solid var(--line); background:transparent; color:var(--ink);
+    border-radius:4px; padding:8px 6px; font:inherit; font-size:12px; cursor:pointer;
+    text-align:left; line-height:1.2;
+  }
+  .chip small{ display:block; font-size:10px; color:var(--ink-soft); margin-top:2px; }
+  .chip:hover{ border-color:var(--accent); }
+  .chip[aria-pressed="true"]{ border-color:var(--accent); background:rgba(125,107,87,.12); }
+
+  .pals{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .pal{ border:1px solid var(--line); border-radius:4px; padding:4px; cursor:pointer; background:transparent; }
+  .pal[aria-pressed="true"]{ border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+  .pal .sw{ display:flex; height:16px; border-radius:2px; overflow:hidden; }
+  .pal .sw i{ flex:1; }
+  .pal span{ display:block; font-size:9.5px; color:var(--ink-soft); margin-top:3px; letter-spacing:.04em; }
+
+  .row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:9px 0; }
+  .row label{ font-size:12px; }
+  .row output{ font:11px ui-monospace,Menlo,monospace; color:var(--ink-soft); min-width:34px; text-align:right; }
+  input[type=range]{ width:100%; accent-color:var(--accent); }
+  .slider{ margin:2px 0 12px; }
+  .slider .row{ margin:0 0 2px; }
+
+  .toggles{ display:grid; gap:8px; }
+  .tog{ display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; }
+  .tog input{ accent-color:var(--accent); }
+
+  .btns{ display:grid; gap:8px; margin-top:6px; }
+  button.act{
+    appearance:none; border:1px solid var(--accent); background:var(--accent); color:#fff;
+    padding:10px; border-radius:4px; font:inherit; font-size:12.5px; cursor:pointer;
+    letter-spacing:.04em;
+  }
+  button.act.ghost{ background:transparent; color:var(--ink); }
+  button.act:hover{ filter:brightness(1.06); }
+  input[type=file]{ display:none; }
+  .note{ font-size:11px; color:var(--ink-soft); margin-top:10px; line-height:1.4; }
+</style>
+</head>
+
+<div class="app">
+  <!-- ===================== LEFT: collage ===================== -->
+  <main class="stage" id="stage">
+    <div class="plate-wrap"><canvas id="plate" width="1000" height="1250"></canvas></div>
+    <div class="stage-foot" id="foot">seed —</div>
+  </main>
+
+  <!-- ===================== RIGHT: controls ===================== -->
+  <aside class="rail">
+    <h1>Specimen</h1>
+    <p class="sub">Rough prototype — anatomical cut-outs, one photo region per wing plate.</p>
+
+    <div class="group">
+      <label class="title">Source image</label>
+      <div class="btns">
+        <button class="act ghost" id="pick">Upload screenshot…</button>
+      </div>
+      <input type="file" id="file" accept="image/*">
+      <p class="note" id="srcNote">Using a built-in stand-in image. Drop a file anywhere on the left.</p>
+    </div>
+
+    <div class="group">
+      <label class="title">Shape</label>
+      <div class="chips" id="shapes"></div>
+    </div>
+
+    <div class="group">
+      <label class="title">Pastel palette</label>
+      <div class="pals" id="pals"></div>
+    </div>
+
+    <div class="group">
+      <label class="title">Cutting &amp; colour</label>
+      <div class="slider" data-k="scatter"></div>
+      <div class="slider" data-k="zoom"></div>
+      <div class="slider" data-k="mosaic"></div>
+      <div class="slider" data-k="tint"></div>
+      <div class="slider" data-k="wash"></div>
+    </div>
+
+    <div class="group">
+      <label class="title">Detail</label>
+      <div class="toggles">
+        <label class="tog"><input type="checkbox" id="veins" checked> Drawn wing veins</label>
+        <label class="tog"><input type="checkbox" id="sym" checked> Mirror left/right plates</label>
+        <label class="tog"><input type="checkbox" id="edge" checked> Hard scissor edge</label>
+        <label class="tog"><input type="checkbox" id="plateMode" checked> Full specimen plate (4)</label>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="btns">
+        <button class="act" id="shuffle">Recut ⟳</button>
+        <button class="act ghost" id="dl">Download PNG (2×)</button>
+      </div>
+      <p class="note">Each wing, tail and petal samples a <em>different</em> crop — that offset is what makes an eye land on one plate and a mouth on the next.</p>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* =====================================================================
+   Specimen — rough prototype
+   Shapes are multi-part anatomical masks in a 1000x1000 local space,
+   body axis at x=500. Right-hand parts are authored once and mirrored.
+   ===================================================================== */
+
+const SIGN = {mirror:[-1,0,0,1,1000,0]};
+
+function tfRotScale(deg, s, cx=500, cy=500){
+  const t = deg*Math.PI/180, sc = s*Math.cos(t), ss = s*Math.sin(t);
+  return [sc, ss, -ss, sc, cx - (sc*cx - ss*cy), cy - (ss*cx + sc*cy)];
+}
+function mul(m, n){ // m then n  (apply m first)
+  return [
+    m[0]*n[0] + m[1]*n[2],       m[0]*n[1] + m[1]*n[3],
+    m[2]*n[0] + m[3]*n[2],       m[2]*n[1] + m[3]*n[3],
+    m[4]*n[0] + m[5]*n[2] + n[4], m[4]*n[1] + m[5]*n[3] + n[5]
+  ];
+}
+
+/* ---------- shape library ---------- */
+// wing = photo plate, body/petal likewise; line = stroked only (antennae)
+const BODY_NYMPH = "M 500 266 C 484 270 476 286 478 304 C 462 338 468 390 482 428 C 476 508 488 590 500 630 C 512 590 524 508 518 428 C 532 390 538 338 522 304 C 524 286 516 270 500 266 Z";
+const BODY_MOTH  = "M 500 258 C 476 264 464 288 468 312 C 446 350 452 412 474 452 C 466 540 482 618 500 660 C 518 618 534 540 526 452 C 548 412 554 350 532 312 C 536 288 524 264 500 258 Z";
+
+const SHAPES = {
+  nymphalid: {
+    label:"Nymphalid", hint:"like the reference",
+    parts:[
+      { kind:"wing", mirror:true,
+        d:"M 508 316 C 604 268 742 196 858 116 C 892 92 928 78 944 88 C 952 122 938 196 912 268 C 884 342 846 388 792 412 C 700 452 588 442 514 404 C 500 380 500 340 508 316 Z",
+        vein:{ base:[518,398], bow:.10, targets:[[938,96],[912,186],[882,286],[832,368],[742,416],[642,428],[712,238]] } },
+      { kind:"wing", mirror:true,
+        d:"M 514 412 C 606 396 704 412 776 456 C 838 494 862 556 842 620 C 820 690 748 730 668 726 C 588 722 530 682 512 616 C 500 552 502 466 514 412 Z",
+        vein:{ base:[518,424], bow:.09, targets:[[798,444],[856,522],[846,604],[788,678],[698,722],[598,720],[540,656]] } },
+      { kind:"body", d:BODY_NYMPH },
+      { kind:"line", mirror:true, d:"M 506 290 C 558 248 636 208 700 176", club:[700,176] }
+    ]
+  },
+  swallowtail: {
+    label:"Swallowtail", hint:"tailed hindwing",
+    parts:[
+      { kind:"wing", mirror:true,
+        d:"M 506 318 C 610 262 748 182 866 100 C 898 78 934 70 946 82 C 950 120 930 200 900 276 C 868 356 826 402 770 424 C 686 456 580 444 512 406 C 498 380 498 342 506 318 Z",
+        vein:{ base:[516,398], bow:.11, targets:[[940,88],[906,180],[878,282],[822,382],[736,426],[634,430]] } },
+      { kind:"wing", mirror:true,
+        d:"M 512 414 C 600 400 690 418 754 462 C 812 502 836 556 826 606 C 820 640 836 690 862 742 C 876 770 868 786 846 776 C 806 758 764 716 736 672 C 700 706 640 726 592 718 C 534 708 506 664 502 604 C 498 528 502 458 512 414 Z",
+        vein:{ base:[516,426], bow:.10, targets:[[762,470],[822,552],[840,700],[852,762],[730,664],[646,714],[556,690]] } },
+      { kind:"body", d:BODY_NYMPH },
+      { kind:"line", mirror:true, d:"M 506 288 C 562 244 646 202 714 170", club:[714,170] }
+    ]
+  },
+  luna: {
+    label:"Luna moth", hint:"long tails, furry body",
+    parts:[
+      { kind:"wing", mirror:true,
+        d:"M 504 300 C 616 256 748 222 862 218 C 908 216 934 236 926 270 C 914 320 876 368 818 404 C 740 452 618 458 514 420 C 496 392 494 328 504 300 Z",
+        vein:{ base:[514,404], bow:.09, targets:[[918,252],[892,318],[840,376],[752,424],[652,442],[560,436]] } },
+      { kind:"wing", mirror:true,
+        d:"M 514 424 C 600 414 682 434 736 476 C 788 518 800 570 782 616 C 766 656 774 720 792 800 C 802 848 792 872 770 862 C 738 846 704 780 690 706 C 660 730 610 740 570 730 C 522 716 502 672 500 608 C 498 528 504 462 514 424 Z",
+        vein:{ base:[516,436], bow:.10, targets:[[744,492],[790,584],[784,700],[790,824],[688,700],[610,734],[540,690]] } },
+      { kind:"body", d:BODY_MOTH, fuzz:true },
+      { kind:"line", mirror:true, feather:true, d:"M 506 282 C 556 238 630 206 690 190" }
+    ]
+  },
+  bloom: {
+    label:"Peony bloom", hint:"overlapping petals",
+    parts:(function(){
+      const petal = "M 500 500 C 448 466 406 396 412 326 C 418 254 456 210 500 190 C 544 210 582 254 588 326 C 594 396 552 466 500 500 Z";
+      const rings = [ {n:7,s:1.00,r:0}, {n:6,s:0.76,r:27}, {n:5,s:0.52,r:54}, {n:4,s:0.30,r:16} ];
+      const out = [];
+      rings.forEach(ring=>{
+        for(let i=0;i<ring.n;i++){
+          out.push({ kind:"wing", d:petal, tf: tfRotScale(i*(360/ring.n)+ring.r, ring.s),
+            vein:{ base:[500,494], bow:.05, targets:[[500,196],[452,286],[548,286],[430,368],[570,368]] } });
+        }
+      });
+      out.push({ kind:"body", d:"M 500 452 C 470 452 452 476 452 500 C 452 526 472 548 500 548 C 528 548 548 526 548 500 C 548 476 530 452 500 452 Z" });
+      return out;
+    })()
+  }
+};
+
+/* ---------- palettes ---------- */
+const PALETTES = {
+  powder: ["#cfe3f2","#e7d9ef","#f6dfe6","#f4ead6","#dcecdf"],
+  blush:  ["#f7dad4","#f3c9c2","#ecd7cf","#f8e7dd","#e8c8c8"],
+  sage:   ["#dfe8d8","#cfe0cc","#e9efdd","#c9d8c6","#eef2e6"],
+  mint:   ["#d7ecea","#c8e3e0","#e6f2f0","#bcd9d6","#eff7f5"],
+  lilac:  ["#e2dcf0","#d3cbe8","#efeaf8","#c8bfe0","#f4f1fb"],
+  sepia:  ["#e6d9c7","#d2bfa6","#f0e6d8","#b9a288","#efe9df"]
+};
+
+/* ---------- state ---------- */
+const S = {
+  shape:"nymphalid", palette:"blush", seed:20260730,
+  scatter:.55, zoom:1.9, mosaic:0, tint:.5, wash:.28,
+  veins:true, sym:true, edge:true, plate:true
+};
+const SLIDERS = {
+  scatter:{label:"Crop scatter", min:0, max:1, step:.01, fmt:v=>Math.round(v*100)+"%"},
+  zoom:   {label:"Photo zoom",   min:1, max:4, step:.05, fmt:v=>v.toFixed(2)+"×"},
+  mosaic: {label:"Mosaic tiles", min:0, max:48, step:1, fmt:v=> v<4?"off":v+"px"},
+  tint:   {label:"Pastel tint",  min:0, max:1, step:.01, fmt:v=>Math.round(v*100)+"%"},
+  wash:   {label:"Paper wash",   min:0, max:.7, step:.01, fmt:v=>Math.round(v*100)+"%"}
+};
+
+/* ---------- helpers ---------- */
+function rng(seed){
+  let s = (seed>>>0) || 1;
+  return ()=>{ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; };
+}
+const bboxCache = new Map();
+function bboxOf(d){
+  if(bboxCache.has(d)) return bboxCache.get(d);
+  const n = d.match(/-?\d+(\.\d+)?/g).map(Number);
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(let i=0;i+1<n.length;i+=2){
+    x0=Math.min(x0,n[i]); x1=Math.max(x1,n[i]);
+    y0=Math.min(y0,n[i+1]); y1=Math.max(y1,n[i+1]);
+  }
+  const bb={x:x0,y:y0,w:x1-x0,h:y1-y0};
+  bboxCache.set(d,bb); return bb;
+}
+function cv(w,h){ const c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; }
+
+/* ---------- the built-in stand-in source image ---------- */
+function standIn(){
+  const c = cv(760, 1000), g = c.getContext("2d");
+  const skin = g.createLinearGradient(0,0,0,1000);
+  skin.addColorStop(0,"#f6ded2"); skin.addColorStop(.55,"#f2cdbb"); skin.addColorStop(1,"#e6b6a2");
+  g.fillStyle=skin; g.fillRect(0,0,760,1000);
+  // hair mass
+  g.fillStyle="#3a2b25"; g.beginPath(); g.ellipse(380,120,420,230,0,0,7); g.fill();
+  // blush
+  const blush=(x,y,r,col)=>{ const rg=g.createRadialGradient(x,y,0,x,y,r); rg.addColorStop(0,col); rg.addColorStop(1,"rgba(0,0,0,0)"); g.fillStyle=rg; g.beginPath(); g.arc(x,y,r,0,7); g.fill(); };
+  blush(190,600,180,"rgba(226,132,120,.55)"); blush(580,600,180,"rgba(226,132,120,.5)");
+  // eyes
+  const eye=(x,y,s)=>{
+    g.save(); g.translate(x,y); g.scale(s,s);
+    g.fillStyle="rgba(120,80,70,.35)"; g.beginPath(); g.ellipse(0,-34,120,52,0,0,7); g.fill();
+    g.fillStyle="#f7efe9"; g.beginPath(); g.ellipse(0,0,104,46,0,0,7); g.fill();
+    g.fillStyle="#241a16"; g.beginPath(); g.arc(6,0,40,0,7); g.fill();
+    g.strokeStyle="#2a1e19"; g.lineWidth=9; g.beginPath(); g.ellipse(0,0,104,46,0,Math.PI,2*Math.PI); g.stroke();
+    g.restore();
+  };
+  eye(215,430,1); eye(560,435,.95);
+  // nose + lips
+  g.strokeStyle="rgba(150,96,80,.45)"; g.lineWidth=8; g.beginPath();
+  g.moveTo(392,470); g.quadraticCurveTo(408,610,368,650); g.stroke();
+  g.fillStyle="#c84f57"; g.beginPath();
+  g.moveTo(240,760); g.quadraticCurveTo(310,700,382,742); g.quadraticCurveTo(452,700,522,762);
+  g.quadraticCurveTo(430,860,240,760); g.fill();
+  return c;
+}
+
+/* ---------- per-part photo plate ---------- */
+function plateFor(part, idx, seed, img, colour){
+  const bb = bboxOf(part.d);
+  const r = rng(seed*2654435761 + idx*7919 + 13);
+  const jx=(r()-.5)*2, jy=(r()-.5)*2, jz=r(), jr=(r()-.5)*2;
+
+  const c = cv(bb.w, bb.h), g = c.getContext("2d");
+  const zoom = S.zoom * (1 + (jz-.5)*S.scatter*.7);
+  const s = Math.max(bb.w/img.width, bb.h/img.height) * zoom;
+  const dw = img.width*s, dh = img.height*s;
+
+  g.save();
+  g.translate(bb.w/2, bb.h/2);
+  g.rotate(jr * S.scatter * .35);
+  g.translate(jx*S.scatter*dw*.42, jy*S.scatter*dh*.42);
+  g.drawImage(img, -dw/2, -dh/2, dw, dh);
+  g.restore();
+
+  // mosaic tiling — jittered blocks for artistic depth
+  const cell = Math.round(S.mosaic);
+  if(cell >= 4){
+    const src = cv(c.width,c.height); src.getContext("2d").drawImage(c,0,0);
+    g.clearRect(0,0,c.width,c.height);
+    for(let y=0;y<c.height;y+=cell) for(let x=0;x<c.width;x+=cell){
+      const ox = Math.round((r()-.5)*cell*.9), oy = Math.round((r()-.5)*cell*.9);
+      const sx = Math.min(Math.max(x+ox,0), c.width-cell), sy = Math.min(Math.max(y+oy,0), c.height-cell);
+      g.globalAlpha = .82 + r()*.18;
+      g.drawImage(src, sx,sy,cell,cell, x,y,cell,cell);
+    }
+    g.globalAlpha=1;
+  }
+
+  const mask = cv(c.width,c.height); mask.getContext("2d").drawImage(c,0,0);
+
+  if(S.tint>0){ g.globalCompositeOperation="multiply"; g.globalAlpha=S.tint; g.fillStyle=colour; g.fillRect(0,0,c.width,c.height); }
+  if(S.wash>0){ g.globalCompositeOperation="source-atop"; g.globalAlpha=S.wash; g.fillStyle="#fffaf2"; g.fillRect(0,0,c.width,c.height); }
+  g.globalAlpha=1; g.globalCompositeOperation="destination-in"; g.drawImage(mask,0,0);
+  return {canvas:c, bb};
+}
+
+/* ---------- one specimen into a 1000×1000 frame ---------- */
+function drawSpecimen(ctx, shapeKey, seed, img, pal, m){
+  const shape = SHAPES[shapeKey];
+  const pieces = [];
+  shape.parts.forEach((p,i)=>{
+    pieces.push({p, i, tf:p.tf||null});
+    if(p.mirror) pieces.push({p, i, tf: p.tf ? mul(p.tf, SIGN.mirror) : SIGN.mirror, twin:true});
+  });
+
+  // union silhouette -> soft cast shadow, like a pinned specimen on card
+  const sil = cv(1000*m, 1000*m), sg = sil.getContext("2d");
+  sg.scale(m,m); sg.fillStyle="#000";
+  pieces.forEach(({p,tf})=>{
+    if(p.kind==="line") return;
+    sg.save(); if(tf) sg.transform(...tf); sg.fill(new Path2D(p.d)); sg.restore();
+  });
+  ctx.save();
+  ctx.shadowColor="rgba(64,52,40,.30)"; ctx.shadowBlur=22*m; ctx.shadowOffsetY=10*m;
+  ctx.globalAlpha=.5; ctx.drawImage(sil,0,0); ctx.restore();
+
+  const cache = new Map();
+  pieces.forEach(({p,i,tf,twin})=>{
+    if(p.kind==="line") return;
+    const key = (S.sym && twin) ? i : i + (twin?"b":"");
+    if(!cache.has(key)) cache.set(key, plateFor(p, twin && !S.sym ? i+500 : i, seed, img, pal[i % pal.length]));
+    const {canvas, bb} = cache.get(key);
+    const path = new Path2D(p.d);
+
+    ctx.save(); ctx.scale(m,m); if(tf) ctx.transform(...tf);
+    ctx.save(); ctx.clip(path); ctx.drawImage(canvas, bb.x, bb.y, bb.w, bb.h); ctx.restore();
+
+    if(p.kind==="body"){ // darken the body so it reads as thorax/abdomen, not wing
+      ctx.save(); ctx.clip(path); ctx.globalCompositeOperation="multiply"; ctx.globalAlpha=.55;
+      ctx.fillStyle="#7d6a4e"; ctx.fill(path); ctx.restore();
+    }
+    if(S.edge){
+      ctx.lineWidth=1.6; ctx.strokeStyle="rgba(255,252,244,.55)"; ctx.stroke(path);
+      ctx.lineWidth=.7;  ctx.strokeStyle="rgba(70,56,44,.16)";   ctx.stroke(path);
+    }
+    ctx.restore();
+  });
+
+  // drawn veins over the plates
+  if(S.veins) pieces.forEach(({p,tf})=>{
+    if(!p.vein) return;
+    ctx.save(); ctx.scale(m,m); if(tf) ctx.transform(...tf);
+    ctx.strokeStyle="rgba(92,72,58,.42)"; ctx.lineCap="round";
+    const b=p.vein.base, tips=[];
+    p.vein.targets.forEach(t=>{
+      const mx=(b[0]+t[0])/2, my=(b[1]+t[1])/2, dx=t[0]-b[0], dy=t[1]-b[1];
+      ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(b[0],b[1]);
+      ctx.quadraticCurveTo(mx - dy*p.vein.bow, my + dx*p.vein.bow, t[0], t[1]); ctx.stroke();
+      tips.push([b[0]+dx*.62, b[1]+dy*.62]);
+    });
+    ctx.lineWidth=.8; ctx.strokeStyle="rgba(92,72,58,.26)";   // cross-veins between cells
+    for(let k=0;k<tips.length-1;k++){ ctx.beginPath(); ctx.moveTo(...tips[k]); ctx.lineTo(...tips[k+1]); ctx.stroke(); }
+    ctx.restore();
+  });
+
+  // antennae
+  pieces.forEach(({p,tf})=>{
+    if(p.kind!=="line") return;
+    ctx.save(); ctx.scale(m,m); if(tf) ctx.transform(...tf);
+    const path=new Path2D(p.d);
+    ctx.strokeStyle="rgba(58,44,34,.72)"; ctx.lineWidth=p.feather?3.2:1.5; ctx.lineCap="round"; ctx.stroke(path);
+    if(p.club){ ctx.fillStyle="rgba(58,44,34,.8)"; ctx.beginPath(); ctx.ellipse(p.club[0],p.club[1],9,5,-.5,0,7); ctx.fill(); }
+    ctx.restore();
+  });
+}
+
+/* ---------- the plate (mount card + arrangement) ---------- */
+const LAYOUT = [
+  {shape:"luna",        s:.52, x:.50, y:.14, rot:-1,  seedOff:31 },
+  {shape:null,          s:1.0, x:.50, y:.45, rot:0,   seedOff:0  },  // hero = chosen shape
+  {shape:"nymphalid",   s:.40, x:.25, y:.79, rot:-9,  seedOff:77 },
+  {shape:"swallowtail", s:.40, x:.75, y:.78, rot:7,   seedOff:113}
+];
+
+function renderTo(canvas, mult){
+  const W=1000*mult, H=1250*mult;
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext("2d");
+
+  // cream mount
+  ctx.fillStyle="#f4efe4"; ctx.fillRect(0,0,W,H);
+  const vg=ctx.createRadialGradient(W*.5,H*.42,0,W*.5,H*.42,W*.95);
+  vg.addColorStop(0,"rgba(255,255,255,.5)"); vg.addColorStop(1,"rgba(150,132,108,.16)");
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+
+  const pal=PALETTES[S.palette];
+  const items = S.plate ? LAYOUT : [{shape:null,s:1,x:.5,y:.48,rot:0,seedOff:0}];
+
+  items.forEach(it=>{
+    const key = it.shape || S.shape;
+    const frame = cv(1000*mult, 1000*mult);
+    const fctx = frame.getContext("2d");
+    drawSpecimen(fctx, key, S.seed + it.seedOff, IMG, pal, mult);
+    ctx.save();
+    ctx.translate(W*it.x, H*it.y);
+    ctx.rotate(it.rot*Math.PI/180);
+    ctx.scale(it.s, it.s);
+    ctx.drawImage(frame, -500*mult, -500*mult);
+    ctx.restore();
+  });
+
+  // pencil-ish signature, bottom right
+  ctx.fillStyle="rgba(90,74,58,.45)";
+  ctx.font = (11*mult)+"px ui-monospace, Menlo, monospace";
+  ctx.textAlign="right"; ctx.fillText("no. "+S.seed, W-28*mult, H-22*mult);
+}
+
+/* ---------- UI wiring ---------- */
+let IMG = standIn();
+const plateEl = document.getElementById("plate");
+const foot = document.getElementById("foot");
+function draw(){
+  renderTo(plateEl, 1);
+  foot.textContent = `seed ${S.seed} · ${SHAPES[S.shape].label.toLowerCase()} · ${S.palette}`;
+}
+
+// shape chips
+const shapesEl=document.getElementById("shapes");
+Object.entries(SHAPES).forEach(([k,v])=>{
+  const b=document.createElement("button");
+  b.className="chip"; b.dataset.k=k; b.setAttribute("aria-pressed", k===S.shape);
+  b.innerHTML = v.label + (v.hint?`<small>${v.hint}</small>`:"");
+  b.onclick=()=>{ S.shape=k; [...shapesEl.children].forEach(c=>c.setAttribute("aria-pressed", c.dataset.k===k)); draw(); };
+  shapesEl.append(b);
+});
+
+// palette swatches
+const palsEl=document.getElementById("pals");
+Object.entries(PALETTES).forEach(([k,cols])=>{
+  const b=document.createElement("button");
+  b.className="pal"; b.dataset.k=k; b.setAttribute("aria-pressed", k===S.palette);
+  b.innerHTML = `<span class="sw">${cols.map(c=>`<i style="background:${c}"></i>`).join("")}</span><span>${k}</span>`;
+  b.querySelector(".sw").className="sw";
+  b.onclick=()=>{ S.palette=k; [...palsEl.children].forEach(c=>c.setAttribute("aria-pressed", c.dataset.k===k)); draw(); };
+  palsEl.append(b);
+});
+
+// sliders
+document.querySelectorAll(".slider").forEach(box=>{
+  const k=box.dataset.k, cfg=SLIDERS[k];
+  box.innerHTML = `<div class="row"><label for="s_${k}">${cfg.label}</label><output id="o_${k}">${cfg.fmt(S[k])}</output></div>
+                   <input type="range" id="s_${k}" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}" value="${S[k]}">`;
+  const inp=box.querySelector("input"), out=box.querySelector("output");
+  inp.addEventListener("input", ()=>{ S[k]=parseFloat(inp.value); out.textContent=cfg.fmt(S[k]); draw(); });
+});
+
+// toggles
+[["veins","veins"],["sym","sym"],["edge","edge"],["plate","plateMode"]].forEach(([key,id])=>{
+  const el=document.getElementById(id); el.checked=S[key];
+  el.addEventListener("change", ()=>{ S[key]=el.checked; draw(); });
+});
+
+document.getElementById("shuffle").onclick = ()=>{ S.seed = Math.floor(Math.random()*9e6)+1000; draw(); };
+document.getElementById("dl").onclick = ()=>{
+  const out=cv(1,1); renderTo(out,2);
+  out.toBlob(b=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(b);
+    a.download=`specimen-${S.shape}-${S.seed}.png`; a.click(); URL.revokeObjectURL(a.href); });
+};
+
+// upload + drag/drop on the stage
+const fileEl=document.getElementById("file"), stage=document.getElementById("stage");
+document.getElementById("pick").onclick=()=>fileEl.click();
+function loadFile(f){
+  if(!f || !f.type.startsWith("image/")) return;
+  const im=new Image();
+  im.onload=()=>{ IMG=im; document.getElementById("srcNote").textContent=`${f.name} — ${im.width}×${im.height}`; draw(); };
+  im.src=URL.createObjectURL(f);
+}
+fileEl.onchange=e=>loadFile(e.target.files[0]);
+["dragenter","dragover"].forEach(ev=>stage.addEventListener(ev,e=>{ e.preventDefault(); stage.classList.add("drop"); }));
+["dragleave","drop"].forEach(ev=>stage.addEventListener(ev,e=>{ e.preventDefault(); stage.classList.remove("drop"); }));
+stage.addEventListener("drop", e=>loadFile(e.dataTransfer.files[0]));
+
+draw();
+</script>
+</html>

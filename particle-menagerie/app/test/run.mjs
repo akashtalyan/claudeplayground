@@ -375,7 +375,7 @@ async function main() {
         s.color = hue;
         if (hue !== 185) throw new Error(`dead knob: color swatch (got ${hue})`);
         await step(20); // recolor lands in the frame
-        await shot('plate-more.png');
+        await shot('plate-intents.png'); // v3.2: all intent rows set, color applied
 
         // -- esc sinks the plate, clears selection
         await page.keyboard.press('Escape');
@@ -474,10 +474,20 @@ async function main() {
         await step(60);
         const ser2 = await page.evaluate(() => window.__menagerie.controls.serialize());
         if (ser2 !== ser) throw new Error(`URL round-trip drifted:\n  before ${ser}\n  after  ${ser2}`);
-        const glowBack = await page.evaluate(() => window.__menagerie.controls.getParam('c1', 'glow'));
-        s.roundTrip = { glow: { set: s.knobs.glow.after, restored: glowBack } };
-        if (!(Math.abs(glowBack - s.knobs.glow.after) < 0.02)) {
-          throw new Error(`round-trip glow ${s.knobs.glow.after} -> ${glowBack}`);
+        // v3.2: the intents chosen above must survive the round-trip, both as
+        // engine params and as the words the plate re-derives from them.
+        const back = await page.evaluate(
+          (ids) => {
+            const c = window.__menagerie.controls;
+            const out = {};
+            for (const id of ids) out[id] = c.getIntent('c1', id);
+            return out;
+          },
+          Object.keys(s.intents),
+        );
+        s.roundTrip = { intents: back, expected: Object.fromEntries(Object.entries(s.intents).map(([k, v]) => [k, v.after])) };
+        for (const [id, word] of Object.entries(s.roundTrip.expected)) {
+          if (back[id] !== word) throw new Error(`round-trip intent ${id}: ${word} -> ${back[id]}`);
         }
       });
 

@@ -11,13 +11,16 @@
 //   ghost,    // boolean — translucent
 //   hue,      // 0..360 or null (monochrome default)
 //   count,    // 1..6 — "school of fish" → 5, "three eels" → 3
-//   morph,    // fish-species morph preset (FISH_MORPHS entry) or null —
-//             // pass as opts.morph to the fish maker; plain "fish"/"school
-//             // of fish" stays null so schools keep seed-varied bodies
+//   morph,    // named-species morph preset (FISH_MORPHS / KELP_MORPHS /
+//             // BLOOM_MORPHS entry) or null — passed as opts.morph to the
+//             // maker; plain "fish"/"kelp"/"flower" stays null so generic
+//             // creatures keep seed-varied bodies
 // }
 
 import { hashName } from './geometry/rng.js';
 import { FISH_MORPHS } from './geometry/fish.js';
+import { KELP_MORPHS } from './geometry/kelp.js';
+import { BLOOM_MORPHS } from './geometry/bloom.js';
 
 // ---- archetype lexicon (~150 entries) ------------------------------------
 export const LEX = {
@@ -57,12 +60,15 @@ export const LEX = {
   bloom: [
     'flower', 'rose', 'tulip', 'lotus', 'daisy', 'lily', 'orchid',
     'sunflower', 'poppy', 'hibiscus', 'blossom', 'sakura', 'peony', 'dahlia',
-    'anemone', 'coral', 'carnation', 'lavender', 'iris', 'jasmine',
+    'anemone', 'carnation', 'lavender', 'iris', 'jasmine',
     'marigold', 'chrysanthemum', 'camellia', 'magnolia', 'daffodil',
   ],
   kelp: [
     'kelp', 'seaweed', 'seagrass', 'grass', 'reed', 'vine', 'fern', 'willow',
     'wakame', 'eelgrass', 'sargassum',
+    // coral moved bloom→kelp (Phase F): the stubby strand-cluster morph
+    // reads as coral; 'fan'/'seafan' cover "sea fan" (planar morph)
+    'coral', 'seafan', 'fan',
   ],
 };
 
@@ -167,12 +173,16 @@ export function resolveName(raw) {
     for (const a of ARCH_NAMES) {
       if (LEX[a].includes(w) || LEX[a].includes(ws)) arch = a;
     }
-    // named fish species → characteristic morph preset (eel-likes are in
-    // LEX.eel and never reach here as fish, so they keep the eel archetype)
-    const sp = FISH_MORPHS[w] || FISH_MORPHS[ws];
+    // named species → characteristic morph preset (eel-likes are in LEX.eel
+    // and never reach here as fish, so they keep the eel archetype); plant
+    // species (seagrass, anemone, coral...) resolve the same way
+    const sp =
+      FISH_MORPHS[w] || FISH_MORPHS[ws] ||
+      KELP_MORPHS[w] || KELP_MORPHS[ws] ||
+      BLOOM_MORPHS[w] || BLOOM_MORPHS[ws];
     if (sp && !morph) {
       morph = sp;
-      if (sp.scale) scale *= sp.scale; // shark/marlin larger, minnow tiny...
+      if (sp.scale) scale *= sp.scale; // shark larger, minnow/seagrass smaller...
     }
   }
   const clean = kept.join(' ') || name;

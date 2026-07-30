@@ -566,7 +566,9 @@ function boot() {
       if (Math.abs(px) < EXCL) px = (px < 0 ? -1 : 1) * (EXCL + (EXCL - Math.abs(px)) * 0.6);
       const pz = -280 + prng() * 260;
       const vd = (camDist - pz) / camDist;
-      const lift = 4 + prng() * 36; // px above the projected bottom edge
+      // px above the projected bottom edge; enough that a short plant (seagrass,
+      // coral, anemone) sits fully in frame instead of half-clipped by it.
+      const lift = 40 + prng() * 46;
       base = [px, -(state.H / 2 - lift) * vd, pz];
     } else {
       base = [

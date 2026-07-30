@@ -66,7 +66,9 @@ export const REGISTRY = {
   },
   bloom: {
     maker: makeBloom, class: 'rooted', boundR: 3.9,
-    scale: 46, dotPx: 4.4, alpha: 1.05, speed: 0,
+    // alpha 1.05 -> 0.82: dense-crown morphs (anemone, rose) pile many short
+    // petals into a small area and blew out to a white core.
+    scale: 46, dotPx: 4.4, alpha: 0.82, speed: 0,
     yawOffset: 0, pitch: 0, spin: 0,
   },
   kelp: {

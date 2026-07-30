@@ -6,20 +6,32 @@
 //           least-aligned-axis seed construction (T0 ≈ +Y ⇒ frame in XZ).
 //   core  — small quantized-ring dome at the crown; analytic height-field
 //           normals, static in the crown frame (moves/tilts with the stem).
-//   petals— 8–14 radial SHEETS. Each petal centerline is a circular arc
-//           α(u) = α0 + α1·u peeling away from the stem axis (closed form —
-//           exact ∂/∂u), width sin(πu), v² cup across the chord. Normals are
-//           analytic ∂P/∂u × ∂P/∂v (M4 trap: every time-dependent term —
-//           arc, width taper, cup — appears in the derivatives; nothing is
-//           finite-differenced or dropped). u stations are cell-centered so
-//           width never hits zero ⇒ the cross product never degenerates.
+//   petals— 4–26 radial SHEETS (seed default 8–14). Each petal centerline is
+//           a circular arc α(u) = α0 + α1·u peeling away from the stem axis
+//           (closed form — exact ∂/∂u), width sin(πu), v² cup across the
+//           chord. Normals are analytic ∂P/∂u × ∂P/∂v (M4 trap: every
+//           time-dependent term — arc, width taper, cup — appears in the
+//           derivatives; nothing is finite-differenced or dropped). u
+//           stations are cell-centered so width never hits zero ⇒ the cross
+//           product never degenerates.
 // Motion soul (from v2): rooted quadratic stem sway (tip moves most),
 // opening/closing breath cycle of the petal cone, slow rotation of the
 // rosette about the stem axis with a gentle rotary wobble.
 // Zero allocation in updateTargets (§4); per-frame trig is per-petal /
 // per-u-station only (§3), never per dot.
+//
+// Ocean-plant morphs (Phase F): appended seed-drawn axes — petal count up to
+// 26 (extra per-petal jitter block appended after the frozen v1 stream),
+// petal length/width, cup depth, opening tilt (cupped-closed → flat-open),
+// outward curl, stem height/girth, core size, rosette layers (inner layers
+// shorter + more upright, staggered azimuth), and a wiggle floor (anemone:
+// tentacles keep a slight independent sway even in still water). Named
+// species resolve exactly like FISH_MORPHS: presets override VALUES only —
+// every RNG draw still happens, in the same order, so the stream never
+// shifts; dot count varies only through the petal-count axis, which is
+// itself deterministic per (seed, morph).
 
-import { mulberry32 } from './rng.js';
+import { mulberry32, hashName } from './rng.js';
 import { createSpine, makeRingTables, KAPPA_R_MAX, RING_SHRINK, TAU } from './spine.js';
 
 // incommensurate stem-lean frequency pair (spec §1 spirit)
@@ -28,7 +40,45 @@ const WS1 = 0.31;
 const WS2 = WS1 * W_RATIO;
 const WB = 0.55; // breath cycle (~11 s at tempo 1 — v2's freq·0.45 feel)
 const SWAY_MAX = 2.4; // slider 2.4 = max safe sway (spec §5 normalization)
-const P_MAX = 14; // per-petal RNG draws use this FIXED count, never petalCount
+const P_MAX = 14; //  v1 frozen per-petal draw block (never grows)
+const P_MAX2 = 26; // morph ceiling; petals 15-26 draw from the APPENDED block
+
+// ---- named-species morph presets -----------------------------------------
+// Axes (multipliers on the seed-drawn base unless noted):
+//   petals  absolute petal count 4..26 (seed default: 8-14)
+//   len/wid petal length / width ×      cup   chord cup depth ×
+//   tilt    opening: ×(base tilt off the stem axis) — 0.3 closed/vertical
+//           (tulip), 1 neutral, 1.3 flat/horizontal (lotus)
+//   curl    outward curl along the petal ×
+//   stem    stem height ×               stemR stem girth ×
+//   core    crown dome size ×           layers rosette layers 1..3
+//   wiggle  0..1 constant independent tentacle sway floor (anemone)
+//   scale   world-scale hint — consumed by lexicon.js only, ignored here
+// Exported for lexicon.js (resolve/params path). makeBloom also resolves a
+// preset directly from its seed (hashName of the bare species name) so the
+// board path — which passes only the seed — gets species shapes for free.
+export const BLOOM_MORPHS = {
+  // len 0.38 -> 0.62 and core 1.5 -> 0.7: 24 short petals all converging on one
+  // point piled enough dots at the crown centre to blow out white.
+  anemone: { petals: 24, layers: 2, len: 0.62, wid: 2.4, cup: 0.4, tilt: 1.05, curl: 1.3, stem: 0.55, stemR: 2.4, core: 0.7, wiggle: 1, scale: 0.9 },
+  lotus: { petals: 12, layers: 2, len: 1.1, wid: 1.5, cup: 0.55, tilt: 1.3, curl: 0.45, stem: 0.5, stemR: 1.2, core: 1.2, wiggle: 0, scale: 1.0 },
+  rose: { petals: 15, layers: 3, len: 0.85, wid: 1.25, cup: 1.9, tilt: 0.62, curl: 0.9, stem: 0.9, stemR: 1, core: 0.8, wiggle: 0, scale: 0.95 },
+  tulip: { petals: 6, layers: 2, len: 1.05, wid: 1.35, cup: 1.6, tilt: 0.32, curl: 0.55, stem: 0.95, stemR: 1, core: 0.7, wiggle: 0, scale: 0.95 },
+};
+BLOOM_MORPHS.lily = BLOOM_MORPHS.lotus; // "lotus / lily" share the low flat profile
+
+// seed → preset (the clean name of a bare species IS its seed via hashName;
+// plural too, since resolveName keeps the typed word in the clean name)
+const MORPH_BY_SEED = new Map();
+for (const k of Object.keys(BLOOM_MORPHS)) {
+  MORPH_BY_SEED.set(hashName(k), BLOOM_MORPHS[k]);
+  MORPH_BY_SEED.set(hashName(k + 's'), BLOOM_MORPHS[k]);
+}
+MORPH_BY_SEED.set(hashName('lilies'), BLOOM_MORPHS.lily);
+MORPH_BY_SEED.set(hashName('sea anemone'), BLOOM_MORPHS.anemone);
+MORPH_BY_SEED.set(hashName('sea anemones'), BLOOM_MORPHS.anemone);
+
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 export function makeBloom(seed, opts = {}) {
   const stemRings = opts.stemRings ?? 16;
@@ -37,7 +87,7 @@ export function makeBloom(seed, opts = {}) {
   const coreDotsPerRing = opts.coreDotsPerRing ?? 20;
   const petalCols = opts.petalCols ?? 6; // quantized v-columns per petal (§7)
   const petalBudget = opts.petalBudget ?? 1160;
-  const stemLen = opts.stemLength ?? 2.3;
+  const stemLen0 = opts.stemLength ?? 2.3;
   const stemRadius = opts.stemRadius ?? 0.09;
   const petalLen = opts.petalLength ?? 1.15;
   const coreRadius = opts.coreRadius ?? 0.2;
@@ -60,19 +110,24 @@ export function makeBloom(seed, opts = {}) {
   const rotMag = 0.08 + 0.08 * rng(); //                 draw 7: rad/s
   const rotSpeed = rng() < 0.5 ? -rotMag : rotMag; //    draw 8: direction
   const twistPerRing = (rng() * 2 - 1) * 0.15; //        draw 9: stem rib twist
-  const lenJ = new Float32Array(P_MAX); //               draws 10 .. 9+P_MAX
+  const lenJ = new Float32Array(P_MAX2); //              draws 10 .. 9+P_MAX
   for (let p = 0; p < P_MAX; p++) lenJ[p] = 0.85 + 0.3 * rng();
-  const widJ = new Float32Array(P_MAX); //               next P_MAX draws
+  const widJ = new Float32Array(P_MAX2); //              next P_MAX draws
   for (let p = 0; p < P_MAX; p++) widJ[p] = 0.85 + 0.3 * rng();
-  const cupJ = new Float32Array(P_MAX); //               next P_MAX draws
+  const cupJ = new Float32Array(P_MAX2); //              next P_MAX draws
   for (let p = 0; p < P_MAX; p++) cupJ[p] = 0.6 + 0.8 * rng();
-  const phJ = new Float32Array(P_MAX); //                next P_MAX draws
+  const phJ = new Float32Array(P_MAX2); //               next P_MAX draws
   for (let p = 0; p < P_MAX; p++) phJ[p] = rng() * 0.5;
 
-  // petal grid derives only from draw 2 — deterministic per seed
-  const dotsPerPetal = Math.floor(petalBudget / petalCount);
+  // preset resolution consumes NO draws — it may widen the petal count, and
+  // the petal grid (hence `count`) derives only from draw 2 + the preset:
+  // deterministic per (seed, morph); the seed-only board path resolves the
+  // same preset via MORPH_BY_SEED, so a species is one shape everywhere.
+  const preset = opts.morph ?? MORPH_BY_SEED.get(seed >>> 0) ?? null;
+  const petalsEff = clamp(Math.round(preset?.petals ?? petalCount), 4, P_MAX2);
+  const dotsPerPetal = Math.floor(petalBudget / petalsEff);
   const petalRows = Math.max(2, Math.floor(dotsPerPetal / petalCols));
-  const count = stemCount + coreCount + petalCount * petalRows * petalCols;
+  const count = stemCount + coreCount + petalsEff * petalRows * petalCols;
 
   const sizeJit = new Float32Array(count); //            next count draws
   for (let d = 0; d < count; d++) sizeJit[d] = 0.75 + 0.5 * rng();
@@ -87,7 +142,32 @@ export function makeBloom(seed, opts = {}) {
     perm[d] = perm[j];
     perm[j] = t;
   }
+  // Morph axes — APPENDED after the whole v1 stream (spec §8). Unconditional,
+  // fixed counts; a named-species preset overrides VALUES, never skips draws.
+  for (let p = P_MAX; p < P_MAX2; p++) lenJ[p] = 0.85 + 0.3 * rng(); // appended
+  for (let p = P_MAX; p < P_MAX2; p++) widJ[p] = 0.85 + 0.3 * rng(); //  per-
+  for (let p = P_MAX; p < P_MAX2; p++) cupJ[p] = 0.6 + 0.8 * rng(); //   petal
+  for (let p = P_MAX; p < P_MAX2; p++) phJ[p] = rng() * 0.5; //          blocks
+  const stemJ = 0.85 + 0.3 * rng(); //                    draw: stem height ×
+  const tiltJ = 0.8 + 0.45 * rng(); //                    draw: opening tilt ×
+  const curlJ = 0.8 + 0.4 * rng(); //                     draw: outward curl ×
+  const layerR = rng(); //                                draw: rosette layers
   // ---- end frozen draw order ----
+
+  const M = {
+    len: preset?.len ?? 1,
+    wid: preset?.wid ?? 1,
+    cup: preset?.cup ?? 1,
+    tilt: clamp(preset?.tilt ?? tiltJ, 0.25, 1.34),
+    curl: clamp(preset?.curl ?? curlJ, 0.3, 1.6),
+    stem: clamp(preset?.stem ?? stemJ, 0.3, 1.0), // ≤1: stem+petal tip must
+    //           stay inside the registry bounding sphere (boundR 3.9, §10)
+    stemR: preset?.stemR ?? 1,
+    core: preset?.core ?? 1,
+    layers: clamp(Math.round(preset?.layers ?? (layerR < 0.3 ? 2 : 1)), 1, 3),
+    wiggle: clamp(preset?.wiggle ?? 0, 0, 1),
+  };
+  const stemLen = stemLen0 * M.stem;
 
   // ---- stem (tube) statics
   const spine = createSpine(stemRings, sampleCount);
@@ -95,7 +175,7 @@ export function makeBloom(seed, opts = {}) {
   const rNom = new Float32Array(stemRings); // gentle root→crown taper
   for (let i = 0; i < stemRings; i++) {
     const f = i / (stemRings - 1);
-    rNom[i] = stemRadius * (1 - 0.35 * f);
+    rNom[i] = stemRadius * M.stemR * (1 - 0.35 * f);
   }
   const rEff = new Float32Array(stemRings);
   const drds = new Float32Array(stemRings);
@@ -113,6 +193,8 @@ export function makeBloom(seed, opts = {}) {
 
   // ---- core dome statics: quantized equal-area rings on a paraboloid,
   // coordinates and unit normals precomputed in the crown frame (N,B,T)
+  const coreR = coreRadius * M.core;
+  const coreH = coreHeight * M.core;
   const coreN = new Float32Array(coreCount);
   const coreB = new Float32Array(coreCount);
   const coreT = new Float32Array(coreCount);
@@ -121,9 +203,9 @@ export function makeBloom(seed, opts = {}) {
   const coreNt = new Float32Array(coreCount);
   {
     let d = 0;
-    const g = (2 * coreHeight) / (coreRadius * coreRadius);
+    const g = (2 * coreH) / (coreR * coreR);
     for (let ri = 0; ri < coreRings; ri++) {
-      const rho = coreRadius * Math.sqrt((ri + 0.5) / coreRings);
+      const rho = coreR * Math.sqrt((ri + 0.5) / coreRings);
       const off = ri * 0.5; // stagger rings so spokes don't align
       for (let j = 0; j < coreDotsPerRing; j++, d++) {
         const a = off + (j * TAU) / coreDotsPerRing;
@@ -131,7 +213,7 @@ export function makeBloom(seed, opts = {}) {
         const sa = Math.sin(a);
         coreN[d] = rho * ca;
         coreB[d] = rho * sa;
-        coreT[d] = coreHeight * (1 - (rho * rho) / (coreRadius * coreRadius));
+        coreT[d] = coreH * (1 - (rho * rho) / (coreR * coreR));
         // height-field normal ∝ (g·ρ·cos, g·ρ·sin, 1), normalized once here
         const il = 1 / Math.sqrt(g * g * rho * rho + 1);
         coreNn[d] = g * rho * ca * il;
@@ -155,8 +237,37 @@ export function makeBloom(seed, opts = {}) {
   const vT = new Float32Array(petalCols);
   for (let j = 0; j < petalCols; j++) vT[j] = j / (petalCols - 1) - 0.5;
 
+  // ---- per-petal statics: rosette layers. Petals are dealt into `layers`
+  // concentric whorls — inner whorls shorter (×0.78^l), more upright
+  // (×0.7^l), azimuth staggered a half-step — with the per-petal seed jitter
+  // and morph multipliers baked in once here (per-frame loop reads tables).
+  const pTheta = new Float32Array(petalsEff); // azimuth within the rosette
+  const pLen = new Float32Array(petalsEff); //   arc length L
+  const pWid = new Float32Array(petalsEff); //   chord width scale (×sin πu)
+  const pCup = new Float32Array(petalsEff); //   v² cup coefficient
+  const pTilt = new Float32Array(petalsEff); //  base-tilt multiplier
+  const pPh = new Float32Array(petalsEff); //    breath phase offset
+  {
+    let p = 0;
+    for (let l = 0; l < M.layers; l++) {
+      const nl = Math.floor(petalsEff / M.layers) + (l < petalsEff % M.layers ? 1 : 0);
+      const lLen = Math.pow(0.78, l);
+      const lTilt = Math.pow(0.7, l);
+      for (let q = 0; q < nl; q++, p++) {
+        pTheta[p] = (q / nl) * TAU + (l * 0.5 * TAU) / nl; // staggered whorl
+        pLen[p] = petalLen * lenJ[p] * M.len * lLen;
+        pWid[p] = 0.4 * pLen[p] * widJ[p] * M.wid;
+        pCup[p] = cupJ[p] * M.cup;
+        pTilt[p] = M.tilt * lTilt;
+        pPh[p] = phJ[p] * (1 + 6 * M.wiggle); // wiggle: independent phases
+      }
+    }
+  }
+
   const AMP1 = 0.22; // stem lean amplitudes (world units at tip, per sway=1)
   const AMP2 = 0.16;
+  const WBe = WB * (1 + 0.8 * M.wiggle); // anemone tentacles cycle faster
+  const wigDepth = 0.35 * M.wiggle; //      ...and never fall fully still
 
   function updateTargets(timeSec, sway, tempo, positions, normals) {
     const s = Math.min(sway, SWAY_MAX);
@@ -253,16 +364,17 @@ export function makeBloom(seed, opts = {}) {
       normals[o + 1] = na * ny0 + nb * by0 + nc * ty;
       normals[o + 2] = na * nz0 + nb * bz0 + nc * tz;
     }
-    // --- petals: breath cycle + slow rotation + rotary wobble (v2 soul)
-    const depth = Math.min(1, 0.45 * s); // breath depth scales with sway
+    // --- petals: breath cycle + slow rotation + rotary wobble (v2 soul);
+    // wiggle keeps a depth floor so anemone tentacles never fall still
+    const depth = Math.min(1, 0.45 * s + wigDepth); // breath depth ~ sway
     const thetaBase = rotPhase + rotSpeed * t + 0.06 * s * Math.sin(0.5 * t + breathPhase);
-    const step = TAU / petalCount;
-    for (let p = 0; p < petalCount; p++) {
-      const br = Math.sin(WB * t + breathPhase + phJ[p]);
+    for (let p = 0; p < petalsEff; p++) {
+      const br = Math.sin(WBe * t + breathPhase + pPh[p]);
       const open = 1 - depth * (0.5 - 0.5 * br); // ∈ [1−depth, 1]
-      const a0 = 0.1 + 1.05 * open; // base tilt off the stem axis
-      const a1 = 0.5 + 0.45 * open; // outward curl along the petal (≥ 0.5)
-      const theta = thetaBase + p * step;
+      const a0 = pTilt[p] * (0.1 + 1.05 * open); // base tilt off the stem axis
+      const a1c = M.curl * (0.5 + 0.45 * open); // outward curl along the petal
+      const a1 = a1c > 0.15 ? a1c : 0.15; //       (>0 keeps Larc finite)
+      const theta = thetaBase + pTheta[p];
       const cth = Math.cos(theta);
       const sth = Math.sin(theta);
       // petal basis: R̂ radial, Ŵ = T̂×R̂ chordwise, T̂ crown axis
@@ -272,9 +384,9 @@ export function makeBloom(seed, opts = {}) {
       const wx = -sth * nx0 + cth * bx0;
       const wy = -sth * ny0 + cth * by0;
       const wz = -sth * nz0 + cth * bz0;
-      const L = petalLen * lenJ[p];
-      const widC = 0.4 * L * widJ[p]; // full width scale; ×sin(πu) profile
-      const cupK = cupJ[p];
+      const L = pLen[p];
+      const widC = pWid[p]; // full width scale; ×sin(πu) profile
+      const cupK = pCup[p];
       const Larc = L / a1; // circular-arc centerline radius
       const cosA0 = Math.cos(a0);
       const sinA0 = Math.sin(a0);
@@ -345,7 +457,7 @@ export function makeBloom(seed, opts = {}) {
       aTw[sl] = twPhase[d];
       aRing[sl] = 0.47;
     }
-    for (let p = 0; p < petalCount; p++) {
+    for (let p = 0; p < petalsEff; p++) {
       for (let i = 0; i < petalRows; i++) {
         const rf = 0.5 + 0.5 * uT[i]; // crown→petal-tip ∈ (0.5, 1)
         const sz = 0.8 - 0.3 * uT[i]; // slimmer dots toward the tip

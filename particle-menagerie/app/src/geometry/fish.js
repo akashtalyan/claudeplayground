@@ -27,6 +27,24 @@ const W_RATIO = Math.SQRT2 * 1.618033988749895 * 0.5;
 //   snout    snout profile (<1 blunt, >1 pointed; >2 = bill/rostrum)
 //   tailLen  caudal fin length (+ flex "flow")
 //   scale    world-scale hint — consumed by lexicon.js only, ignored here
+//   tempo/speed  same: beat + roam hints for lexicon.js, ignored here
+// Preset-only axes (no seed draw — like dorsalLen/tailLen, they default to a
+// neutral value so every seed-morphed fish is bit-identical to v3.2):
+//   flukeH    0..1 tail PLANE: 0 = vertical fish caudal (identity), 1 = fully
+//             horizontal cetacean fluke. Rotates the caudal sheet about the
+//             body axis at the tail station (the frame rotates, so the sheet's
+//             analytic ∂P/∂u × ∂P/∂v rotates with it — see updateTargets).
+//   undulateH 0..1 undulation PLANE: 0 = side-to-side carangiform beat
+//             (identity), 1 = up-and-down mammalian body undulation (the
+//             primary wave swaps into the vertical, the small secondary flex
+//             into the lateral). The heading-turn bend stays horizontal at
+//             both ends — a whale still turns left and right, not up and down.
+//   tailSpan  caudal half-span multiplier (wide whale fluke vs narrow lunate)
+//   snoutPow  taper sharpness multiplier, decoupled from snout LENGTH — a
+//             narwhal tusk is longer AND far thinner than a marlin bill, a
+//             whale head is short AND blunt; snout alone couples the two
+//   width     lateral fatness multiplier: fish are laterally compressed
+//             (WF 0.45), cetaceans are near-round in section (WF ≈ 0.8)
 // Exported for lexicon.js (resolve/params path). makeFish also resolves a
 // preset directly from its seed (hashName of the bare species name) so the
 // board path — which passes only the seed — gets species shapes for free.
@@ -39,6 +57,53 @@ export const FISH_MORPHS = {
   swordfish: { elong: 1.32, depth: 0.78, fork: 1.3, dorsal: 1.3, dorsalLen: 0.8, pect: 0.8, snout: 2.9, tailLen: 0.95, scale: 1.3 },
   goldfish: { elong: 0.8, depth: 1.25, fork: 0.55, dorsal: 0.9, dorsalLen: 1.0, pect: 1.1, snout: 0.7, tailLen: 1.55, scale: 0.8 },
   minnow: { elong: 1.0, depth: 0.8, fork: 0.35, dorsal: 0.7, dorsalLen: 0.9, pect: 0.8, snout: 0.9, tailLen: 0.85, scale: 0.45 },
+  // ---- cetaceans (v3.3): horizontal fluke + vertical undulation. Before
+  // this they all fell through to the generic fish archetype (morph null,
+  // scale 1) and differed only by seed jitter — "why do dolphin and whale
+  // look the same?". Every one is round in section, blunter than a fish, and
+  // beats up-and-down; the silhouette differences below carry the species.
+  whale: {
+    elong: 2.05, depth: 1.15, fork: 1.15, dorsal: 0.3, dorsalLen: 0.85,
+    pect: 0.95, snout: 0.5, tailLen: 0.8,
+    flukeH: 1, undulateH: 1, tailSpan: 1.45, snoutPow: 0.55, width: 1.85,
+    scale: 2.35, tempo: 0.55, speed: 0.6,
+  },
+  dolphin: {
+    elong: 1.55, depth: 0.95, fork: 1.7, dorsal: 1.55, dorsalLen: 0.6,
+    pect: 1.0, snout: 1.9, tailLen: 0.85,
+    flukeH: 1, undulateH: 1, tailSpan: 0.9, snoutPow: 0.85, width: 1.6,
+    scale: 1.2, tempo: 1.1, speed: 1.15,
+  },
+  orca: {
+    elong: 1.5, depth: 1.0, fork: 1.15, dorsal: 2.9, dorsalLen: 0.5,
+    pect: 1.7, snout: 0.5, tailLen: 0.85,
+    flukeH: 1, undulateH: 1, tailSpan: 1.3, snoutPow: 0.8, width: 1.75,
+    scale: 1.8, tempo: 0.85, speed: 1.0,
+  },
+  narwhal: {
+    elong: 1.6, depth: 0.95, fork: 1.35, dorsal: 0.12, dorsalLen: 1.45,
+    pect: 0.85, snout: 3.0, tailLen: 0.85,
+    flukeH: 1, undulateH: 1, tailSpan: 1.05, snoutPow: 1.8, width: 1.6,
+    scale: 1.15, tempo: 0.9, speed: 0.95,
+  },
+  humpback: {
+    elong: 1.8, depth: 1.2, fork: 1.2, dorsal: 0.5, dorsalLen: 0.8,
+    pect: 2.6, snout: 0.45, tailLen: 0.85,
+    flukeH: 1, undulateH: 1, tailSpan: 1.4, snoutPow: 0.6, width: 1.8,
+    scale: 2.1, tempo: 0.6, speed: 0.65,
+  },
+  beluga: {
+    elong: 1.45, depth: 1.05, fork: 1.05, dorsal: 0.1, dorsalLen: 1.5,
+    pect: 1.0, snout: 0.42, tailLen: 0.85,
+    flukeH: 1, undulateH: 1, tailSpan: 1.1, snoutPow: 0.5, width: 1.75,
+    scale: 1.25, tempo: 0.8, speed: 0.8,
+  },
+  porpoise: {
+    elong: 1.3, depth: 1.0, fork: 1.25, dorsal: 1.0, dorsalLen: 0.9,
+    pect: 0.85, snout: 0.6, tailLen: 0.8,
+    flukeH: 1, undulateH: 1, tailSpan: 0.95, snoutPow: 0.7, width: 1.55,
+    scale: 0.85, tempo: 1.15, speed: 1.2,
+  },
 };
 
 // seed → preset (the clean name of a bare species IS its seed via hashName;
@@ -131,6 +196,12 @@ export function makeFish(seed, opts = {}) {
     pect: preset?.pect ?? pectJ,
     snout: preset?.snout ?? snoutJ,
     tailLen: preset?.tailLen ?? 1,
+    // preset-only axes; the neutral defaults reproduce v3.2 exactly
+    flukeH: preset?.flukeH ?? 0,
+    undulateH: preset?.undulateH ?? 0,
+    tailSpan: preset?.tailSpan ?? 1,
+    snoutPow: preset?.snoutPow ?? 1,
+    width: preset?.width ?? 1,
   };
   // morphed dimensions; elongation trades girth for length. The uniform norm
   // shrink keeps nose→caudal-tip inside the registry bounding sphere
@@ -140,8 +211,21 @@ export function makeFish(seed, opts = {}) {
   const norm = Math.min(1, 2.28 / (bodyLen * (0.5 + 0.252 * M.tailLen)));
   bodyLen *= norm;
   baseRadius *= norm;
-  // lateral compression: deep-bodied morphs get proportionally flatter
-  const WF = 0.45 / Math.sqrt(Math.max(M.depth, 1));
+  // lateral compression: deep-bodied morphs get proportionally flatter.
+  // width lifts it back toward round (1) for cetaceans — a whale is a tube,
+  // not a slab. width 1 = the v3.2 value exactly.
+  const WF = (0.45 / Math.sqrt(Math.max(M.depth, 1))) * M.width;
+  // ---- plane rotations (the cetacean axes). Both are rigid rotations about
+  // the body axis, so nothing below needs a special case: the caudal sheet is
+  // built in a rotated {Vc,Hc} frame (Hc = T×Vc keeps the handedness, so the
+  // analytic Pu×Pv still points out of the same face), and the spine wave is
+  // rotated in the (flex, beat) plane before the RMF ever sees it.
+  const FA = M.flukeH * (Math.PI / 2); //   caudal plane: 0 vertical → π/2 flat
+  const FCA = Math.cos(FA);
+  const FSA = Math.sin(FA);
+  const UB = M.undulateH * (Math.PI / 2); // undulation plane, same convention
+  const UCB = Math.cos(UB);
+  const USB = Math.sin(UB);
 
   const spine = createSpine(ringCount, sampleCount);
   const { cosT, sinT } = makeRingTables(ringCount, dotsPerRing, twistPerRing);
@@ -163,7 +247,7 @@ export function makeFish(seed, opts = {}) {
   // the snout morph multiplies in a head taper — blunt (snout<1) to a long
   // thin rostrum/bill (snout>2, marlin/swordfish)
   const hL = 0.115 * M.snout; // head-taper span, fraction of body
-  const hPow = 0.55 * M.snout; // taper sharpness
+  const hPow = 0.55 * M.snout * M.snoutPow; // taper sharpness (see snoutPow)
   const prof = new Float32Array(ringCount);
   const rNom = new Float32Array(ringCount);
   for (let i = 0; i < ringCount; i++) {
@@ -197,12 +281,18 @@ export function makeFish(seed, opts = {}) {
   let cp1 = 0;
   let cp2 = 0;
   let cp3 = 0;
+  // beat = the primary tail-beat wave, flex = the slow secondary flex. At
+  // undulateH 0 beat lives in z (lateral) and flex in y (vertical) — the
+  // literal v3.2 expressions. At undulateH 1 they swap: the beat drives the
+  // body up and down (mammal), the flex becomes a faint lateral roll. The
+  // turn bend is added AFTER the rotation so it stays horizontal always.
   const curve = (u, out, o) => {
     const env = 0.05 + 0.95 * Math.pow(u, 1.7); // head steady, tail swings
+    const beat = env * (ca1 * Math.sin(K1 * u - cp1) + ca2 * Math.sin(K2 * u - cp2));
+    const flex = ca3 * Math.sin(K3 * u - cp3) * (0.3 + 0.7 * u);
     out[o] = (u - 0.5) * bodyLen;
-    out[o + 1] = ca3 * Math.sin(K3 * u - cp3) * (0.3 + 0.7 * u);
-    out[o + 2] =
-      env * (ca1 * Math.sin(K1 * u - cp1) + ca2 * Math.sin(K2 * u - cp2)) + cturn * u * u;
+    out[o + 1] = UCB * flex + USB * beat;
+    out[o + 2] = UCB * beat + cturn * u * u - USB * flex;
   };
 
   // ---- fin statics (morph-scaled)
@@ -210,7 +300,7 @@ export function makeFish(seed, opts = {}) {
   const SP = 0.14 * bodyLen * M.pect; //   pectoral span
   const CP = 0.1 * bodyLen * M.pect; //    pectoral chord
   const LC = 0.24 * bodyLen * M.tailLen; // caudal length
-  const HC = 0.14 * bodyLen * (0.55 + 0.45 * M.tailLen); // caudal half-height
+  const HC = 0.14 * bodyLen * (0.55 + 0.45 * M.tailLen) * M.tailSpan; // caudal half-span
   const FLOW = 0.7 + 0.3 * M.tailLen; //   long tails flex more ("flowy")
   const SWEEP_C = Math.cos(0.6); // pectoral sweep-back ~35°
   const SWEEP_S = Math.sin(0.6);
@@ -487,19 +577,38 @@ export function makeFish(seed, opts = {}) {
     const oT = iT * 3;
     const psiA = (0.08 + 0.45 * relAmp) * FLOW;
     const tailArg = K1 - cp1 - tailLag;
+    // The fluke plane: {V,H} at the tail station rotated by −FA about T.
+    //   Vc = cosα·V − sinα·H          (the sheet's span direction)
+    //   Hc = cosα·H + sinα·V = T×Vc   (the whip direction — checks out:
+    //     T×Vc = cosα(T×V) − sinα(T×H) = cosα·H + sinα·V, since T×V = H and
+    //     T×H = −V). Handedness is preserved, so Pv×Pu below still faces the
+    //     same way, and because the rotation is rigid and constant in (u,v)
+    //     the derivatives rotate with the surface — substituting Vc/Hc into
+    //     the SAME analytic Pu, Pv is exactly R·(Pu₀), R·(Pv₀), and
+    //     R(Pu₀)×R(Pv₀) = R(Pu₀×Pv₀) for a rotation. Still a true
+    //     ∂P/∂u × ∂P/∂v, never an in-plane offset (the M4 trap).
+    //   The −α sign puts the whip on +V at flukeH 1, matching the +V body
+    //   beat that undulateH 1 produces, so fluke and body stay in phase.
+    // At flukeH 0 this is Vc = V, Hc = H — the v3.2 caudal fin untouched.
+    const vcX = FCA * Varr[oT] - FSA * Harr[oT];
+    const vcY = FCA * Varr[oT + 1] - FSA * Harr[oT + 1];
+    const vcZ = FCA * Varr[oT + 2] - FSA * Harr[oT + 2];
+    const hcX = FCA * Harr[oT] + FSA * Varr[oT];
+    const hcY = FCA * Harr[oT + 1] + FSA * Varr[oT + 1];
+    const hcZ = FCA * Harr[oT + 2] + FSA * Varr[oT + 2];
     for (let n = 0; n < nCv; n++) {
       const cv = (n + 1) / nCv;
       const psi = psiA * Math.sin(tailArg - 1.1 * cv);
       const dpsi = -1.1 * psiA * Math.cos(tailArg - 1.1 * cv);
       const cps = Math.cos(psi);
       const sps = Math.sin(psi);
-      // e_back = cosψ·T + sinψ·H ; e_back′ = ψ′·(−sinψ·T + cosψ·H)
-      const ebx = cps * T[oT] + sps * Harr[oT];
-      const eby = cps * T[oT + 1] + sps * Harr[oT + 1];
-      const ebz = cps * T[oT + 2] + sps * Harr[oT + 2];
-      const dbx = dpsi * (-sps * T[oT] + cps * Harr[oT]);
-      const dby = dpsi * (-sps * T[oT + 1] + cps * Harr[oT + 1]);
-      const dbz = dpsi * (-sps * T[oT + 2] + cps * Harr[oT + 2]);
+      // e_back = cosψ·T + sinψ·Hc ; e_back′ = ψ′·(−sinψ·T + cosψ·Hc)
+      const ebx = cps * T[oT] + sps * hcX;
+      const eby = cps * T[oT + 1] + sps * hcY;
+      const ebz = cps * T[oT + 2] + sps * hcZ;
+      const dbx = dpsi * (-sps * T[oT] + cps * hcX);
+      const dby = dpsi * (-sps * T[oT + 1] + cps * hcY);
+      const dbz = dpsi * (-sps * T[oT + 2] + cps * hcZ);
       const hgt = 0.3 + 0.7 * cv;
       // Pv (per row, cu-independent part): L·(e_back + cv·e_back′)
       const pvbx = LC * (ebx + cv * dbx);
@@ -509,17 +618,17 @@ export function makeFish(seed, opts = {}) {
         const cu = cuV[k];
         const g = gC[k];
         const dg = dgC[k];
-        // P = Ptail + L·g(cu)·cv·e_back + H·cu·hgt(cv)·V
+        // P = Ptail + L·g(cu)·cv·e_back + HC·cu·hgt(cv)·Vc
         const o = perm[d] * 3;
-        positions[o] = P[oT] + LC * g * cv * ebx + HC * cu * hgt * Varr[oT];
-        positions[o + 1] = P[oT + 1] + LC * g * cv * eby + HC * cu * hgt * Varr[oT + 1];
-        positions[o + 2] = P[oT + 2] + LC * g * cv * ebz + HC * cu * hgt * Varr[oT + 2];
-        const pvx = g * pvbx + HC * 0.7 * cu * Varr[oT];
-        const pvy = g * pvby + HC * 0.7 * cu * Varr[oT + 1];
-        const pvz = g * pvbz + HC * 0.7 * cu * Varr[oT + 2];
-        const pux = LC * dg * cv * ebx + HC * hgt * Varr[oT];
-        const puy = LC * dg * cv * eby + HC * hgt * Varr[oT + 1];
-        const puz = LC * dg * cv * ebz + HC * hgt * Varr[oT + 2];
+        positions[o] = P[oT] + LC * g * cv * ebx + HC * cu * hgt * vcX;
+        positions[o + 1] = P[oT + 1] + LC * g * cv * eby + HC * cu * hgt * vcY;
+        positions[o + 2] = P[oT + 2] + LC * g * cv * ebz + HC * cu * hgt * vcZ;
+        const pvx = g * pvbx + HC * 0.7 * cu * vcX;
+        const pvy = g * pvby + HC * 0.7 * cu * vcY;
+        const pvz = g * pvbz + HC * 0.7 * cu * vcZ;
+        const pux = LC * dg * cv * ebx + HC * hgt * vcX;
+        const puy = LC * dg * cv * eby + HC * hgt * vcY;
+        const puz = LC * dg * cv * ebz + HC * hgt * vcZ;
         let nx = pvy * puz - pvz * puy;
         let ny = pvz * pux - pvx * puz;
         let nz = pvx * puy - pvy * pux;

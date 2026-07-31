@@ -35,6 +35,9 @@ export const LEX = {
     'sardine', 'herring', 'mackerel', 'bass', 'trout', 'snapper', 'grouper',
     'pufferfish', 'puffer', 'carp', 'catfish', 'angelfish', 'lionfish',
     'sunfish', 'tetra', 'wrasse', 'perch', 'pike', 'sturgeon',
+    // cetaceans (fish archetype, but hand-authored cetacean morphs in
+    // FISH_MORPHS: horizontal fluke + up-down undulation)
+    'humpback', 'beluga', 'porpoise',
   ],
   eel: [
     'eel', 'moray', 'seasnake', 'serpent', 'snake', 'dragon', 'seadragon',
@@ -183,6 +186,8 @@ export function resolveName(raw) {
     if (sp && !morph) {
       morph = sp;
       if (sp.scale) scale *= sp.scale; // shark larger, minnow/seagrass smaller...
+      if (sp.tempo) tempo *= sp.tempo; // a whale beats slowly, a porpoise fast
+      if (sp.speed) speed *= sp.speed;
     }
   }
   const clean = kept.join(' ') || name;

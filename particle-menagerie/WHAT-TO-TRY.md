@@ -13,6 +13,11 @@ Hi Akash — v3 is done and it's a genuinely lovely thing. Here's the tour.
 1. **Type `shark`** in the summon line and press Enter. Watch it form out of
    dots — dorsal sail, forked tail, the works. Then try `marlin` (that bill!)
    and `angelfish` (tall, disc-bodied, nothing like the shark).
+   Then summon a **`whale`** — it dwarfs everything — and an **`orca`** beside
+   it for that dorsal. The cetaceans (whale, humpback, orca, beluga, dolphin,
+   narwhal, porpoise) have horizontal flukes and beat their tails up-and-down
+   like real mammals; the fish beat side-to-side. Watch a `dolphin` and a
+   `tuna` swim past each other and you can see it.
 2. **Type `ghost jellyfish`** — modifiers stack: a translucent medusa. Also fun:
    `giant blue whale`, `tiny fast goldfish`, `red octopus`.
 3. **Type `school of tuna`** — five of them, seed-varied, swimming together.

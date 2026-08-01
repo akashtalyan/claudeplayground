@@ -15,9 +15,22 @@
 //             // BLOOM_MORPHS entry) or null — passed as opts.morph to the
 //             // maker; plain "fish"/"kelp"/"flower" stays null so generic
 //             // creatures keep seed-varied bodies
+//
+//   -- v3.4, the vertical water column (src/depthbands.js) --
+//   bandKey,  // the depth band this name resolved to ('jellyfish', 'kelp',
+//             // 'fish'...) — the species entry when there is one, else the
+//             // archetype's
+//   band,     // the frozen band record: { kind, minM, maxM, preferM, hold,
+//             // wanderM, ... } in METRES BELOW THE SURFACE. A summoned
+//             // creature therefore knows where it lives before it is placed.
+//   depthM,   // metres below the surface for instance 0 — a deterministic
+//             // draw from `seed` inside `band`. Batches of >1 pass their
+//             // instance index to pickDepth(band, seed, i) so a school
+//             // spreads through its band instead of stacking.
 // }
 
 import { hashName } from './geometry/rng.js';
+import { bandFor, bandKeyFor, pickDepth } from './depthbands.js';
 import { FISH_MORPHS } from './geometry/fish.js';
 import { KELP_MORPHS } from './geometry/kelp.js';
 import { BLOOM_MORPHS } from './geometry/bloom.js';
@@ -193,9 +206,19 @@ export function resolveName(raw) {
   const clean = kept.join(' ') || name;
   const seed = hashName(clean);
   if (!arch) arch = SWIMMERS[seed % SWIMMERS.length];
+  // v3.4: the creature's home in the water column. The species band wins over
+  // the archetype's when the name names a species ("red jellyfish" -> the
+  // jellyfish band, not the generic medusa band); unknown names fall through
+  // to the archetype they were assigned above, so everything has a home.
+  // depthM is drawn from `seed` in depthbands' own salted stream — the
+  // geometry RNG and its frozen draw order (geometry-spec §8) are untouched,
+  // so the same URL hash still yields the same board, now including depths.
+  const bandKey = bandKeyFor(clean) || arch;
+  const band = bandFor(bandKey);
   return {
     name: clean, arch, seed, scale, tempo, speed, ghost,
     hue: hueSet ? hue : null, count, morph,
+    bandKey, band, depthM: pickDepth(band, seed, 0),
   };
 }
 

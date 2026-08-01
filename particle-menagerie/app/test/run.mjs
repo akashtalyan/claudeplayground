@@ -435,14 +435,42 @@ async function main() {
         await page.waitForTimeout(900); // staggered return completes
 
         // -- hover label: pick a creature whose body (and label spot) is well
-        // inside the viewport (c1 is now giant and rides the right edge)
-        const a = await page.evaluate(() => {
-          for (const id of ['c2', 'c3', 'c1']) {
-            const an = window.__menagerie.controls.screenAnchor(id);
-            if (an && an.x > 80 && an.x < innerWidth - 120 && an.y - an.radiusPx > 60 && an.y < innerHeight - 120) return an;
+        // inside the viewport (c1 is now giant and rides the right edge).
+        //
+        // v3.4: creatures no longer scatter over the screen's height — they sit
+        // at their species' depth, so on a two-species board whichever one is
+        // framed is near the middle of the porthole and a giant one can shove
+        // its schoolmate anywhere. The vessel is the answer: pick the smallest
+        // body that is horizontally in frame, then TRIM THE DEPTH so it sits in
+        // the lower-middle where the label has room. That is framing with the
+        // instrument the release added, not a relaxed bound — the assertions
+        // below are unchanged and still demand a fully on-viewport label.
+        const hoverId = await page.evaluate(() => {
+          const m = window.__menagerie;
+          let best = null;
+          for (const c of m.test.creatureList()) {
+            const an = m.controls.screenAnchor(c.id);
+            if (!an || !(an.x > 80 && an.x < innerWidth - 120)) continue;
+            if (!best || an.radiusPx < best.r) best = { id: c.id, r: an.radiusPx, y: an.y };
           }
-          return null;
+          if (!best) return null;
+          const wantY = innerHeight * 0.6; // lower-middle: room for the label above
+          if (best.y - best.r <= 60 || best.y > innerHeight - 120) {
+            // CSS px the body must move DOWN the frame -> metres the vessel
+            // must RISE (world y = -depth, so a shallower camera drops it)
+            const dy = wantY - best.y;
+            const info = m.test.depthInfo();
+            m.test.setDepth(info.depth - dy * 0.2, true);
+          }
+          return best.id;
         });
+        if (!hoverId) throw new Error('no hoverable creature horizontally in view');
+        await step(12); // the trimmed depth lands in a rendered frame
+        const a = await page.evaluate((id) => {
+          const an = window.__menagerie.controls.screenAnchor(id);
+          if (an && an.x > 80 && an.x < innerWidth - 120 && an.y - an.radiusPx > 60 && an.y < innerHeight - 120) return an;
+          return null;
+        }, hoverId);
         if (!a) throw new Error('no hoverable creature fully in view');
         await page.mouse.move(a.x, a.y);
         await page.waitForTimeout(800); // label fade-in (wall clock rAF)
@@ -562,24 +590,41 @@ async function main() {
         }
       });
 
-      // ---- 13. v3.2 gather: a click summons the WHOLE menagerie -----------
-      // Asserts (a) every swimmer/drifter closes on the beacon, (b) a
-      // sleeping creature is exempt, (c) they spread around the point rather
-      // than stacking, (d) after the beacon expires they resume roaming.
+      // ---- 13. v3.2 gather: a click summons the menagerie WITHIN EARSHOT ---
+      // Asserts (a) every swimmer/drifter inside the beacon's reach closes on
+      // it, (b) a sleeping creature is exempt, (c) they spread around the point
+      // rather than stacking, (d) after the beacon expires they resume roaming.
+      //
+      // v3.4: the world is 1200 m tall, so "the WHOLE menagerie" stopped being
+      // a coherent ask — an octopus at 565 m cannot visit a beacon at 150 m
+      // inside the beacon's ~12 s life, and asking it to would mean species
+      // bands are decorative. The beacon now carries ~2 screens of water
+      // (test.gatherReachPx). The convergence bound is UNCHANGED (every mover
+      // in reach must close to <75% of its starting distance) and the scenario
+      // gains a stricter one: a creature out of reach must still be out of
+      // reach at the end, i.e. it never left its own water to answer.
       await scenario('gather', async (s) => {
-        await load('fixedstep=1&board=fish,eel,jellyfish,octopus,kelp');
+        await load('fixedstep=1&board=eel,fish,jellyfish,shark,octopus,kelp');
         await step(340); // formations complete, swimmers roam apart
         const setup = await page.evaluate(() => {
           const m = window.__menagerie;
+          const reach = m.test.gatherReachPx();
+          // the beacon goes where a CLICK would put it: beside the porthole,
+          // at the depth the vessel is actually looking at
+          const pt = { x: 260, y: m.column.camY() - 40, z: -60 };
           const list = m.test.creatureList();
-          // put one swimmer to sleep — it must NOT answer the summons
-          const sleeper = list.find((c) => c.klass === 'swimmer');
+          const inReach = (c) => Math.abs(c.y - pt.y) <= reach;
+          // put one swimmer that IS in reach to sleep — it must not answer
+          const sleeper = list.find((c) => c.klass === 'swimmer' && inReach(c));
           if (sleeper) m.controls.setParam(sleeper.id, 'behavior', 'sleep');
-          m.gather.setPoint(260, -40, -60); // world px, off to one side
-          return { list: m.test.creatureList(), sleeperId: sleeper ? sleeper.id : null, pt: { x: 260, y: -40, z: -60 } };
+          m.gather.setPoint(pt.x, pt.y, pt.z);
+          return { list: m.test.creatureList(), sleeperId: sleeper ? sleeper.id : null, pt, reach };
         });
         const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
         const d0 = new Map(setup.list.map((c) => [c.id, dist(c, setup.pt)]));
+        const inReach0 = new Set(
+          setup.list.filter((c) => Math.abs(c.y - setup.pt.y) <= setup.reach).map((c) => c.id),
+        );
         const sleeperStart = setup.list.find((c) => c.id === setup.sleeperId);
         await step(40);
         await shot('gather-converge.png');
@@ -587,14 +632,26 @@ async function main() {
         const mid = await page.evaluate(() => window.__menagerie.test.creatureList());
         await shot('gather-converge.png');
 
-        const movers = mid.filter((c) => c.klass !== 'rooted' && c.id !== setup.sleeperId);
+        const all = mid.filter((c) => c.klass !== 'rooted' && c.id !== setup.sleeperId);
+        const movers = all.filter((c) => inReach0.has(c.id));
+        const deaf = all.filter((c) => !inReach0.has(c.id));
         const closed = movers.filter((c) => dist(c, setup.pt) < d0.get(c.id) * 0.75);
+        s.reachPx = Math.round(setup.reach);
         s.movers = movers.length;
         s.closed = closed.length;
+        s.outOfReach = deaf.length;
         s.distances = movers.map((c) => ({ id: c.id, from: Math.round(d0.get(c.id)), to: Math.round(dist(c, setup.pt)) }));
-        if (movers.length < 3) throw new Error(`gather: expected several swimmers, saw ${movers.length}`);
+        if (movers.length < 3) throw new Error(`gather: expected several swimmers in reach, saw ${movers.length}`);
         if (closed.length < movers.length) {
           throw new Error(`gather: only ${closed.length}/${movers.length} creatures closed on the beacon: ${JSON.stringify(s.distances)}`);
+        }
+        // the column is real: a creature living outside earshot stays there
+        if (!deaf.length) throw new Error('gather: board no longer has an out-of-reach creature to test against');
+        for (const c of deaf) {
+          const dy = Math.abs(c.y - setup.pt.y);
+          if (dy <= setup.reach * 0.75) {
+            throw new Error(`gather: an out-of-reach creature (${c.id}) came ${Math.round(dy)}px of the beacon — bands are not holding`);
+          }
         }
         // sleeper exemption
         if (sleeperStart) {
@@ -615,7 +672,9 @@ async function main() {
           active: window.__menagerie.gather.active(),
         }));
         s.beaconActiveAfter = after.active;
-        const dispersed = after.list.filter((c) => c.klass !== 'rooted').some((c) => dist(c, setup.pt) > 40);
+        const dispersed = after.list
+          .filter((c) => c.klass !== 'rooted' && inReach0.has(c.id))
+          .some((c) => dist(c, setup.pt) > 40);
         if (after.active) throw new Error('gather: beacon never expired');
         if (!dispersed) throw new Error('gather: creatures never resumed roaming after the beacon expired');
       });
@@ -728,12 +787,206 @@ async function main() {
         await page.setViewportSize({ width: 960, height: 540 }); // leave as found
       });
 
+      // ---- 17. v3.4 the water column -------------------------------------
+      // The world is now a 1200 m vertical shaft of ocean that the camera
+      // travels through. This scenario proves the four things that makes true:
+      //   (a) the four zones LOOK different — a surface frame, a mid-water
+      //       frame, a deep frame and a seabed frame are separated by mean-luma
+      //       and lit-pixel deltas, not by a label;
+      //   (b) species live at their own depth — flora is planted on the seabed
+      //       relief, a surface species is in the sunlit zone — and they STAY
+      //       there while the vessel travels past them;
+      //   (c) the vessel EASES to a commanded depth (it is a submarine, not a
+      //       cut) and stops short of both the waterline and the floor;
+      //   (d) determinism survives: the same hash at the same depth renders the
+      //       same frame, byte for byte.
+      // Step counts are deliberately lean — this is software GL.
+      await scenario('column', async (s) => {
+        // a board that spans the whole column: air-breather / twilight drifter
+        // / flora rooted on the abyssal plain
+        const board = 'dolphin,jellyfish,kelp';
+        await load(`fixedstep=1&board=${encodeURIComponent(board)}`);
+        await page.waitForFunction(() => window.__menagerie.column);
+        await page.evaluate(() => window.__menagerie.ui.forceAmbient(true)); // chrome-free canvas
+        await page.waitForTimeout(1600);
+        await step(240); // formations complete
+
+        // -- (b) the world model + where the board actually lives ------------
+        const info0 = await page.evaluate(() => window.__menagerie.test.depthInfo());
+        s.range = { min: +info0.min.toFixed(1), max: +info0.max.toFixed(1), seabed: info0.seabed };
+        if (info0.seabed !== 1200) throw new Error(`column: seabed is ${info0.seabed} m, expected 1200`);
+        if (!(info0.min > 0 && info0.max < info0.seabed && info0.max - info0.min > 800)) {
+          throw new Error(`column: navigable range ${info0.min}..${info0.max} is not a journey inside the water`);
+        }
+        // the vessel surfaces framed on the board rather than at a fixed depth
+        s.bootDepth = +info0.depth.toFixed(1);
+
+        const depths0 = await page.evaluate(() => window.__menagerie.test.creatureDepths());
+        s.creatures = depths0.map((c) => ({ name: c.name, kind: c.kind, m: Math.round(c.depthM) }));
+        const kelp = depths0.find((c) => c.name === 'kelp');
+        const dolphin = depths0.find((c) => c.name === 'dolphin');
+        const jelly = depths0.find((c) => c.name === 'jellyfish');
+        if (!kelp || !dolphin || !jelly) throw new Error(`column: board did not resolve: ${JSON.stringify(s.creatures)}`);
+        // rooted flora is PLANTED — on the seabed relief under its own (x, z),
+        // lifted only enough to sit on the sediment rather than in it
+        if (kelp.kind !== 'rooted') throw new Error(`column: kelp is '${kelp.kind}', expected rooted`);
+        const lift = kelp.y - kelp.floorY;
+        s.kelp = { depthM: Math.round(kelp.depthM), liftPx: Math.round(lift) };
+        if (!(lift >= 0 && lift <= 140)) throw new Error(`column: kelp sits ${lift.toFixed(0)}px off its own seabed relief`);
+        if (!(kelp.depthM > 1100)) throw new Error(`column: kelp is at ${kelp.depthM.toFixed(0)} m, not on the abyssal plain`);
+        // a surface species is in the sunlit zone, an order of magnitude above it
+        s.dolphinM = Math.round(dolphin.depthM);
+        if (!(dolphin.depthM < 120)) throw new Error(`column: dolphin is at ${dolphin.depthM.toFixed(0)} m — it has to reach air`);
+        if (!(jelly.depthM > dolphin.depthM + 150)) {
+          throw new Error(`column: the board does not span depth (dolphin ${dolphin.depthM.toFixed(0)} m, jellyfish ${jelly.depthM.toFixed(0)} m)`);
+        }
+
+        // -- (a) the four zones look different -------------------------------
+        const stops = [
+          ['surface', info0.min],
+          ['mid', 420],
+          ['deep', 900],
+          ['seabed', info0.max],
+        ];
+        s.zones = {};
+        for (const [tag, m] of stops) {
+          await page.evaluate((mm) => window.__menagerie.test.setDepth(mm, true), m);
+          await step(80); // trails re-fill after the jump flushes them
+          const buf = await shot(`column-${tag}.png`);
+          const st = await pngStats(buf, 'full');
+          s.zones[tag] = {
+            depthM: Math.round(await page.evaluate(() => window.__menagerie.test.depthInfo().depth)),
+            zone: await page.evaluate(() => window.__menagerie.test.depthInfo().zone),
+            meanLuma: +st.meanLuma.toFixed(2),
+            litCount: st.litCount,
+            blownFrac: st.blownFrac,
+          };
+          if (st.blownFrac > 0.08) throw new Error(`column-${tag}: ${(st.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
+        }
+        const Z = s.zones;
+        // sunlit water is unmistakably brighter than the twilight below it...
+        if (!(Z.surface.meanLuma > Z.mid.meanLuma + 8)) {
+          throw new Error(`column: surface (${Z.surface.meanLuma}) is not visibly brighter than mid-water (${Z.mid.meanLuma})`);
+        }
+        if (!(Z.surface.litCount > Z.mid.litCount * 4)) {
+          throw new Error(`column: surface lit ${Z.surface.litCount} vs mid ${Z.mid.litCount} — the light is not dying with depth`);
+        }
+        // ...the deep is darker still than mid-water...
+        if (!(Z.mid.meanLuma >= Z.deep.meanLuma)) {
+          throw new Error(`column: the deep (${Z.deep.meanLuma}) is not at or below mid-water (${Z.mid.meanLuma})`);
+        }
+        // ...and the seabed is a FLOOR: sediment haze + the dotted plain put
+        // measurably more light back into the frame than the black above it
+        if (!(Z.seabed.meanLuma > Z.deep.meanLuma + 2 && Z.seabed.litCount > Z.deep.litCount * 3)) {
+          throw new Error(`column: the seabed (${Z.seabed.meanLuma} luma, ${Z.seabed.litCount} lit) does not read as a floor over the abyss (${Z.deep.meanLuma}, ${Z.deep.litCount})`);
+        }
+        if (Z.surface.zone !== 'sunlit' || Z.seabed.zone !== 'abyssal') {
+          throw new Error(`column: zone names disagree with the depths (${Z.surface.zone} / ${Z.seabed.zone})`);
+        }
+
+        // -- (b cont.) creatures STAYED while the vessel travelled -----------
+        const depths1 = await page.evaluate(() => window.__menagerie.test.creatureDepths());
+        s.after = depths1.map((c) => ({ name: c.name, m: Math.round(c.depthM) }));
+        for (const now of depths1) {
+          if (now.homeM == null) continue;
+          // The camera has just travelled ~1100 m. A creature may wander inside
+          // its own band (a jellyfish's is tens of metres wide) but must still
+          // be at HOME — if any of them tracked the porthole this blows up.
+          const off = Math.abs(now.depthM - now.homeM);
+          if (off > 120) {
+            throw new Error(`column: ${now.name} is ${off.toFixed(0)} m from its home depth after the camera travelled 1100 m — it is following the porthole`);
+          }
+        }
+        // and the column's vertical order is intact
+        const after = (n) => depths1.find((c) => c.name === n).depthM;
+        if (!(after('dolphin') < after('jellyfish') && after('jellyfish') < after('kelp'))) {
+          throw new Error(`column: the species stack is out of order: ${JSON.stringify(s.after)}`);
+        }
+
+        // -- (c) the vessel eases, and stops short of both ends --------------
+        await page.evaluate(() => window.__menagerie.test.setDepth(window.__menagerie.test.depthInfo().min, true));
+        await step(2);
+        const easing = await page.evaluate(async () => {
+          const t = window.__menagerie.test;
+          const from = t.depthInfo().depth;
+          const to = t.depthInfo().max;
+          t.setDepth(to); // NOT instant — the column owns the travel
+          window.__menagerie.clock.stepMany(1, 1 / 60);
+          const afterOne = t.depthInfo().depth;
+          window.__menagerie.clock.stepMany(30, 1 / 60); // half a second
+          const afterHalfSec = t.depthInfo().depth;
+          return { from, to, afterOne, afterHalfSec, rate: t.depthInfo().rate };
+        });
+        const span = easing.to - easing.from;
+        s.easing = {
+          from: +easing.from.toFixed(1),
+          to: +easing.to.toFixed(1),
+          movedInOneFrame: +(easing.afterOne - easing.from).toFixed(2),
+          movedInHalfSecond: +(easing.afterHalfSec - easing.from).toFixed(1),
+        };
+        if (!(easing.afterOne - easing.from > 0)) throw new Error('column: setDepth did not start the vessel moving');
+        if (easing.afterOne - easing.from > span * 0.05) {
+          throw new Error(`column: setDepth teleported — ${(easing.afterOne - easing.from).toFixed(1)} m of a ${span.toFixed(0)} m command in one frame`);
+        }
+        if (!(easing.afterHalfSec > easing.afterOne)) throw new Error('column: the vessel stalled mid-travel');
+        await step(600); // 10 s sim: the full-column run completes and settles
+        const arrived = await page.evaluate(() => window.__menagerie.test.depthInfo());
+        s.arrivedM = +arrived.depth.toFixed(1);
+        if (Math.abs(arrived.depth - arrived.max) > 1) {
+          throw new Error(`column: the vessel never arrived (${arrived.depth.toFixed(1)} m of a ${arrived.max.toFixed(1)} m command)`);
+        }
+        const clamps = await page.evaluate(() => {
+          const t = window.__menagerie.test;
+          const r = t.depthInfo();
+          t.setDepth(-9999, true);
+          const lo = t.depthInfo().depth;
+          t.setDepth(99999, true);
+          const hi = t.depthInfo().depth;
+          return { lo, hi, min: r.min, max: r.max };
+        });
+        s.clamps = { lo: +clamps.lo.toFixed(1), hi: +clamps.hi.toFixed(1) };
+        if (Math.abs(clamps.lo - clamps.min) > 0.01 || Math.abs(clamps.hi - clamps.max) > 0.01) {
+          throw new Error(`column: depth did not clamp to [${clamps.min}, ${clamps.max}] — got ${clamps.lo} / ${clamps.hi}`);
+        }
+
+        // -- (d) determinism: same hash + same depth = the same frame --------
+        await page.evaluate(() => window.__menagerie.test.setDepth(430, true));
+        const ser = await page.evaluate(() => window.__menagerie.controls.serialize());
+        s.serialized = ser;
+        if (!/(^|;)d=430(;|$)/.test(ser)) throw new Error(`column: depth did not serialize into the hash: ${ser}`);
+        // `nonce` is ignored by the app and exists only to force a real
+        // document load: navigating twice to a byte-identical URL is a
+        // same-document hash navigation, which would leave the first session's
+        // sim time running and compare two different moments.
+        const shoot = async (name, nonce) => {
+          await page.goto(`${server.origin}/?fixedstep=1&nonce=${nonce}#${encodeURIComponent(ser)}`, { waitUntil: 'load', timeout: 90000 });
+          await page.waitForFunction(
+            () => window.__menagerie && window.__menagerie.clock && typeof window.__menagerie.clock.stepMany === 'function',
+            null, { timeout: 90000 },
+          );
+          await page.evaluate(() => window.__menagerie.ui.forceAmbient(true));
+          await page.waitForTimeout(1600);
+          await step(150);
+          return shot(name);
+        };
+        const detA = await shoot('column-determinism-a.png', 'a');
+        const detB = await shoot('column-determinism-b.png', 'b');
+        s.deterministic = detA.equals(detB);
+        s.restoredDepth = await page.evaluate(() => window.__menagerie.test.depthInfo().target);
+        if (Math.abs(s.restoredDepth - 430) > 0.01) {
+          throw new Error(`column: hash restored the board at ${s.restoredDepth} m, not 430 m`);
+        }
+        if (!s.deterministic) {
+          throw new Error('column: the same hash at the same depth rendered two different frames');
+        }
+      });
+
     } finally {
       await browser.close().catch(() => {});
       await server.close().catch(() => {});
     }
   } else {
-    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'gather', 'capture', 'soakE', 'resize']) {
+    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'gather', 'capture', 'soakE', 'resize', 'column']) {
       report.scenarios[name] = { pass: false, error: 'skipped: build failed' };
     }
   }

@@ -101,6 +101,9 @@ const frac = (v) => v - Math.floor(v);
  * @param {HTMLCanvasElement} deps.canvas
  * @param {object} deps.state - integrator state (W, H read-only here)
  * @param {() => number} deps.getCamDist
+ * @param {() => number} [deps.getCamY] - v3.4: the porthole's world height, so
+ *        a screen click maps into the water column the user is actually
+ *        looking at. Defaults to 0 (the v3.3 stationary camera).
  * @param {object} deps.globalUniforms - shared uniform set (shaders/dots.js)
  * @param {(x:number, y:number) => any} deps.hitTest - controls.hitTest;
  *        truthy = the click landed on a creature (select, not summon)
@@ -113,6 +116,7 @@ export function initGather({
   canvas,
   state,
   getCamDist,
+  getCamY,
   globalUniforms,
   hitTest,
   zRange = [-340, 40],
@@ -306,11 +310,15 @@ export function initGather({
     return true;
   }
 
-  // CSS px -> world at the beacon plane (the click path; also the test hook)
+  // CSS px -> world at the beacon plane (the click path; also the test hook).
+  // v3.4: the vertical half is relative to the camera's own height — the
+  // screen is a porthole into a column that moves, so a click 40 px above
+  // centre means 40 px above the VESSEL, not above the surface.
   function setPointFromScreen(cssX, cssY) {
     const camDist = getCamDist();
     const vd = (camDist - beaconZ) / camDist;
-    return setPoint((cssX - state.W / 2) * vd, (state.H / 2 - cssY) * vd, beaconZ);
+    const camY = getCamY ? getCamY() : 0;
+    return setPoint((cssX - state.W / 2) * vd, (state.H / 2 - cssY) * vd + camY, beaconZ);
   }
 
   // Graceful by default: the beacon dissolves and the crowd eases back over

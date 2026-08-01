@@ -680,6 +680,11 @@ export function createControls(engine) {
       if (!s) continue;
       if (s.startsWith('p=')) {
         presetName = s.slice(2);
+      } else if (s.startsWith('d=')) {
+        // v3.4 — the vessel's depth. main.js owns it (it owns the column and
+        // reads this segment before the engine even exists); skipped here so it
+        // is never mistaken for a creature name.
+        continue;
       } else {
         const m = /^(\d+)=(.*)$/.exec(s);
         if (m) ctrls.set(+m[1], decodeCtrl(m[2]));
@@ -758,6 +763,12 @@ export function createControls(engine) {
     getPreset: () => targetPreset,
     presetNames: () => PRESET_ORDER.slice(),
     sceneValues: () => clonePreset(live), // live scene params (UI/tests may read)
+    // v3.4 per-frame path: the SAME live object, not a clone. main.js reads
+    // lightColor/fogTint/gain off it every frame to compose depth on top of the
+    // crossfaded weather, and a clone per frame is an allocation the frame
+    // budget forbids. Read it, never retain or mutate it — use sceneValues()
+    // if you need a snapshot you can keep.
+    liveScene: () => live,
     // lifecycle
     summon,
     reform,

@@ -29,14 +29,13 @@ import * as THREE from 'three';
 import { mulberry32 } from '../geometry/rng.js';
 import { createDotMaterial } from '../shaders/dots.js';
 import {
-	SURFACE_M,
-	SEABED_M,
+	SEABED_DEPTH_M,
 	DEFAULT_DEPTH_M,
 	createDepthSample,
 	sampleDepth,
-	clampDepthM,
-	offsetPxTo,
-	yOfDepth,
+	clampDepth,
+	metresToWorldY,
+	pxAbove,
 } from '../depthprofile.js';
 
 // Must match REF_DIST in shaders/dots.js: px = aSize * REF_DIST / viewDist.
@@ -151,21 +150,21 @@ export function create( scene, globalUniforms, opts = {} ) {
 	};
 
 	let intensity = opts.intensity ?? 1;
-	let depthM = clampDepthM( opts.depthM ?? DEFAULT_DEPTH_M );
+	let depthM = clampDepth( opts.depthM ?? DEFAULT_DEPTH_M );
 	// World y the camera sits at. It stays 0 until setDepth() is called, so a
 	// board whose camera has not been lifted into the column still finds the
 	// mote field around it exactly as in v3.3.
 	let viewY = 0;
-	let surfaceY = viewY + offsetPxTo( depthM, SURFACE_M );
-	let seabedY = viewY + offsetPxTo( depthM, SEABED_M );
+	let surfaceY = viewY + pxAbove( depthM, 0 );
+	let seabedY = viewY + pxAbove( depthM, SEABED_DEPTH_M );
 	const sample = createDepthSample();
 	let lastT = 0;
 	let curInt = 0; // ∫ current dt — shared drift distance, scaled per mote
 
 	function applyDepth() {
 		sampleDepth( depthM, sample );
-		surfaceY = viewY + offsetPxTo( sample.depthM, SURFACE_M );
-		seabedY = viewY + offsetPxTo( sample.depthM, SEABED_M );
+		surfaceY = viewY + pxAbove( sample.depthM, 0 );
+		seabedY = viewY + pxAbove( sample.depthM, SEABED_DEPTH_M );
 		material.uniforms.uAlpha.value = BASE_ALPHA * intensity * sample.sedAlpha;
 		// Render-fraction density: a prefix of a frozen iid draw order, so any
 		// count is a uniform subsample of the same field (no re-seeding, no
@@ -208,8 +207,8 @@ export function create( scene, globalUniforms, opts = {} ) {
 	update( 0 );
 
 	function setDepth( m ) {
-		depthM = clampDepthM( m );
-		viewY = yOfDepth( depthM ); // the camera's own world y in the column
+		depthM = clampDepth( m );
+		viewY = metresToWorldY( depthM ); // the camera's own world y (column.js)
 		applyDepth();
 	}
 

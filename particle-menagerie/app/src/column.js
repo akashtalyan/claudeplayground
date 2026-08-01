@@ -153,7 +153,12 @@ const SETTLE_M = 0.02; // below this offset AND velocity the motion is parked
 const SETTLE_V = 0.05;
 
 // Navigation gains.
-const WHEEL_GAIN = 2.6; // world px of dive per wheel pixel (a dive, not a bar)
+/** World px of dive per wheel pixel (a dive, not a scrollbar). EXPORTED
+ *  because the depth gauge scrolls the same water: wheel-over-instrument and
+ *  wheel-over-porthole have to mean the same thing, and a mirrored copy of this
+ *  number in ui/depthgauge.js was the one place the two could silently drift
+ *  apart. One definition, here, with the rest of the world's units. */
+export const WHEEL_GAIN = 2.6;
 const WHEEL_LINE_PX = 16; // deltaMode 1 (lines) -> px
 const KEY_STEP_M = 26; // arrow key
 const PAGE_FRAC = 0.8; // PageUp/Down = this fraction of the visible band
@@ -180,12 +185,26 @@ const SEABED_STOP = 1.15;
 const VD_NEAR = 0.38; // z = +0.62 x camDist — in front of the creature plane
 const VD_FAR = 2.4; // z = -1.4 x camDist — far enough to haze, near enough to
 // survive the abyss preset's fog
+// INTEGRATION TUNING (v3.4 integrator): a FLOOR wants its near edge right under
+// the lens — that is what runs it off the bottom of the frame. A CEILING does
+// not: at the shallow travel stop the surface is only ~160 px overhead, so
+// sheet dots 0.38 x camDist in front of the lens sit almost against the
+// porthole and the whole upper frame filled with point-blank glitter (and, at
+// that projected speed, with its trails). Holding the surface sheet's near edge
+// back to 0.85 x camDist puts its nearest dots ~470 px away, where the ceiling
+// reads as a rippling boundary above you instead of confetti in your face.
+const SURFACE_VD_NEAR = 0.85;
 const HORIZON_BIAS = 1.35; // >1 crowds samples toward the far end, which is
 // what turns a scatter into a ridge line at the horizon
 const LAYER_MARGIN_PX = 140; // relief/ripple slack on the visibility test
 
 const SEABED_ALPHA = 0.8;
-const SURFACE_ALPHA = 0.85;
+// INTEGRATION TUNING 0.85 -> 0.5 (v3.4 integrator): at the shallow travel stop
+// the ceiling is only ~160 px overhead, so its glitter is seen at point-blank
+// range and a near-opaque sheet read as confetti over the whole upper frame.
+// Half the alpha (and a calmer twinkle below) keeps it as sun-glitter ON a
+// surface rather than a second creature.
+const SURFACE_ALPHA = 0.5;
 
 // ---------------------------------------------------------------------------
 // A dotted sheet: one Points object lying on a horizontal plane, sampled so it
@@ -278,8 +297,8 @@ function buildSheet(scene, globalUniforms, cfg) {
   // RNG, no reallocation — the sheet is never rebuilt from draws.
   function rebuild(w, h, camDist) {
     const halfW = w / 2 + 140;
-    const invNear = 1 / (VD_NEAR * camDist);
-    const invFar = 1 / (VD_FAR * camDist);
+    const invNear = 1 / ((cfg.vdNear ?? VD_NEAR) * camDist);
+    const invFar = 1 / ((cfg.vdFar ?? VD_FAR) * camDist);
     for (let i = 0; i < N; i++) {
       const vd = 1 / (invFar + (invNear - invFar) * sn[i]);
       const z = camDist - vd;
@@ -454,14 +473,15 @@ export function createColumn(scene, globalUniforms, opts = {}) {
         count: opts.surfaceCount ?? 520,
         seed: baseSeed ^ 0x51f4ace0,
         planeYAt: () => SURFACE_Y,
+        vdNear: SURFACE_VD_NEAR,
         relLo: -22, // the boundary has thickness: dots hang just under it
         relHi: -3,
-        sizeLo: 2.2,
-        sizeHi: 3.8,
+        sizeLo: 1.7,
+        sizeHi: 2.9,
         // daylight coming through: the one warm-cool-white in the water
         color: [0.9, 0.96, 1.0],
         alpha: SURFACE_ALPHA,
-        twk: [2.6, 0.55], // fast, deep shimmer — sun glitter on the underside
+        twk: [1.9, 0.5], // shimmer on the underside — fast, but no longer a strobe
         ripple: { amp: 11, w1: 0.9, w2: 1.41 }, // incommensurate: never repeats
       })
     : null;

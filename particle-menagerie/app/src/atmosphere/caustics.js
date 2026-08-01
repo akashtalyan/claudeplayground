@@ -8,7 +8,7 @@
 // Their geometry is static in world space and their vertical extent is
 // authored in METRES (depthprofile.js), so descending physically moves you
 // down them: near the surface you are inside the bright root of the shaft,
-// by the twilight zone they are a faint ceiling far above, and below ~-400 m
+// by the twilight zone they are a faint ceiling far above, and below ~400 m
 // the depth profile has extinguished them entirely (the mesh stops drawing).
 // Absorption along the shaft is an exponential in true depth, so a shaft dims
 // downward for the same reason the water does.
@@ -32,13 +32,12 @@ import { mulberry32 } from '../geometry/rng.js';
 import {
 	METRES_PER_PX,
 	PX_PER_METRE,
-	SURFACE_M,
 	DEFAULT_DEPTH_M,
 	createDepthSample,
 	sampleDepth,
-	clampDepthM,
-	offsetPxTo,
-	yOfDepth,
+	clampDepth,
+	metresToWorldY,
+	pxAbove,
 } from '../depthprofile.js';
 
 const VERT = /* glsl */ `
@@ -180,16 +179,26 @@ void main() {
 // app's ~3.4 exposure this reads as a suggestion of light, not a beam.
 // (Integrator tuning 0.05 → 0.07: at 0.05 the moonlit preset's 0.6 intensity
 // × gain 1.0 fell below one sRGB step — shafts existed only in shallows.)
-const BASE_ALPHA = 0.09;
+// INTEGRATION TUNING 0.09 -> 0.055 (v3.4 integrator): with the shafts now
+// authored in real metres they cover several screens instead of v3.3's ~150 px
+// blobs, so the same per-fragment intensity read as a wall of light rather than
+// a suggestion of one. Measured against the shipped v3.3 build; the shallows
+// top-third delta stays an order of magnitude above the harness bound.
+const BASE_ALPHA = 0.055;
 
 // How fast a shaft is eaten by the water, in metres. 150 m e-folding puts a
 // shaft at ~7% by 400 m, where the depth profile's own multiplier reaches
 // zero — the two agree instead of fighting.
 const SHAFT_EXTINCT_M = 150;
 
-// Shaft length along its (tilted) axis, in metres: 384-624 m of travel, i.e.
-// roughly 330-540 m of vertical drop at the default light tilt.
-const SHAFT_LEN_M = 480;
+// Shaft length along its (tilted) axis, in metres: 208-338 m of travel, i.e.
+// roughly 180-290 m of vertical drop at the default light tilt.
+// INTEGRATION TUNING 480 -> 260 m: at 5 world px per metre a 480 m shaft is
+// 2400 px — over four viewport heights — so every shaft ran off both edges of
+// the frame and the mid-water became a set of parallel wedges with no visible
+// tips. At 260 m a shaft still descends well past the porthole from its mouth
+// but its taper is inside the journey, which is what makes it read as a shaft.
+const SHAFT_LEN_M = 260;
 
 const LUMA_R = 0.2126;
 const LUMA_G = 0.7152;
@@ -280,7 +289,7 @@ export function create( scene, globalUniforms, opts = {} ) {
 			uTime: { value: 0 },
 			uCurrent: { value: 0 },
 			uIntensity: { value: BASE_ALPHA * ( opts.intensity ?? 1 ) },
-			uSurfaceY: { value: -DEFAULT_DEPTH_M * PX_PER_METRE },
+			uSurfaceY: { value: DEFAULT_DEPTH_M * PX_PER_METRE },
 			uMPerPx: { value: METRES_PER_PX },
 			uExtinctM: { value: SHAFT_EXTINCT_M },
 			uDepthTint: { value: new THREE.Vector3( 1, 1, 1 ) },
@@ -313,7 +322,7 @@ export function create( scene, globalUniforms, opts = {} ) {
 	scene.add( mesh );
 
 	let intensity = opts.intensity ?? 1;   // the weather preset's 0..1
-	let depthM = opts.depthM ?? DEFAULT_DEPTH_M;
+	let depthM = clampDepth( opts.depthM ?? DEFAULT_DEPTH_M );
 	// World y the camera sits at. It stays 0 until setDepth() is called, so a
 	// board whose camera has not been lifted into the column still sees the
 	// shafts descending from overhead exactly as in v3.3.
@@ -323,7 +332,7 @@ export function create( scene, globalUniforms, opts = {} ) {
 
 	function applyDepth() {
 		sampleDepth( depthM, sample );
-		material.uniforms.uSurfaceY.value = viewY + offsetPxTo( sample.depthM, SURFACE_M );
+		material.uniforms.uSurfaceY.value = viewY + pxAbove( sample.depthM, 0 );
 		material.uniforms.uIntensity.value = BASE_ALPHA * intensity * sample.caustics;
 		// Water colour at this depth as a bounded hue bias: normalize to unit
 		// luminance, then compress hard (pow 0.18) and blend 35% toward neutral.
@@ -352,8 +361,8 @@ export function create( scene, globalUniforms, opts = {} ) {
 	}
 
 	function setDepth( m ) {
-		depthM = clampDepthM( m );
-		viewY = yOfDepth( depthM ); // the camera's own world y in the column
+		depthM = clampDepth( m );
+		viewY = metresToWorldY( depthM ); // the camera's own world y (column.js)
 		applyDepth();
 	}
 

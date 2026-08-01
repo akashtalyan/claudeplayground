@@ -50,8 +50,16 @@ export function create( scene, globalUniforms, opts = {} ) {
 		caustics,
 		sediment,
 		ao,
-		update( timeSec, current = 0 ) {
-			for ( const p of parts ) p.update( timeSec, current );
+		update( timeSec, current = 0, depthM ) {
+			for ( const p of parts ) p.update( timeSec, current, depthM );
+		},
+		// v3.4 — the camera's depth in metres below the surface (column.js's
+		// positive convention). Shafts hang from the real surface plane and fade
+		// out by ~400 m; marine snow thickens and re-anchors to the porthole. The
+		// AO blobs are depth-agnostic (they sit under whatever flora exists).
+		setDepth( m ) {
+			if ( caustics ) caustics.setDepth( m );
+			if ( sediment ) sediment.setDepth( m );
 		},
 		setIntensity( v ) {
 			for ( const p of parts ) p.setIntensity( v );

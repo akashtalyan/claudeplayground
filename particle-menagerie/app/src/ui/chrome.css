@@ -550,3 +550,223 @@ body:not(.booted) #plate,
 body:not(.booted) #labels {
   visibility: hidden;
 }
+
+/* ==========================================================================
+   v3.4 — DEPTH GAUGE (markup built by src/ui/depthgauge.js; this section owns
+   every gauge rule, including its own boot-gate and State C ambient rules, so
+   nothing above needed editing).
+
+   The world is now a 1200 m vertical water column and this is the vessel's
+   own depth instrument: a brass hairline scale down the LEFT edge (the
+   weather rotary keeps bottom-right, the summon row keeps bottom-centre).
+
+   RESTRAINT — this is the third resting instrument, so it is deliberately the
+   quietest one: no plate, no glass, no backdrop-filter, no fill, no border
+   box. It is a 1px hairline, 1px graduations, 8px numerals at 30% warm white,
+   and a single 14x2px amber needle — the same needle the gauge plate uses,
+   laid on its side. Only the needle and its two-line readout carry amber; at
+   rest the whole instrument is hairlines and small type, so the water still
+   dominates. Hover/focus (via .awake, set by depthgauge.js because the
+   container is pointer-transparent) lifts the scale one step, 180ms.
+
+   LEGIBILITY over both bright surface water and the black abyss comes from a
+   dark CASING on every mark (--dg-casing on the hairlines and graduations,
+   --dg-halo behind the type) rather than from a panel: on black the casing is
+   invisible, on bright glitter it becomes the etched shadow that keeps a 1px
+   brass line and 8px numerals readable. The instrument stays a drawing ON the
+   water instead of a slab over it.
+
+   HIT AREA: #depthgauge is pointer-events:none — only the 24px .dg-column
+   strip takes the pointer, so the water stays clickable everywhere else.
+   ========================================================================== */
+#depthgauge {
+  /* The instrument's own two tokens (scoped here, not to :root — nothing else
+     in the chrome needs them). They are the whole legibility story: every
+     amber mark carries a soft dark casing, so the gauge reads over the bright
+     surface glitter AND over the black abyss without a panel behind it. */
+  --dg-halo: 0 0 2px rgba(2, 4, 7, 0.95), 0 0 6px rgba(2, 4, 7, 0.9),
+    0 1px 1px rgba(2, 4, 7, 0.9);
+  --dg-casing: 0 0 3px 1px rgba(2, 4, 7, 0.6);
+
+  position: fixed;
+  left: 22px;
+  top: 12vh;
+  bottom: 15vh;
+  width: 148px;
+  z-index: 5;
+  pointer-events: none;
+  /* State C return: rises after the summon row and the rotary (the vessel's
+     instruments come back once the water is lit again) */
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 200ms,
+    opacity 420ms ease 200ms;
+}
+
+/* ---- numerals: tiny, right-aligned, left of the hairline ---------------- */
+.dg-scale {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 30px;
+}
+.dg-num {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  font: 400 8px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  color: var(--warm-30);
+  text-shadow: var(--dg-halo);
+  white-space: nowrap;
+  transition: color var(--hover-ms) ease;
+}
+
+/* ---- the column: 24px hit strip, 1px brass hairline down its middle ----- */
+.dg-column {
+  position: absolute;
+  left: 36px;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: auto;
+  cursor: ns-resize;
+  outline: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* full span of the column (0 m -> seabed), the dimmest hairline in the app */
+.dg-column::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--brass-14);
+  box-shadow: var(--dg-casing); /* reads over bright surface glitter */
+  transition: background var(--hover-ms) ease;
+}
+/* the segment the vessel can actually reach (column.range() min..max) —
+   the travel stops explaining themselves, with no copy */
+.dg-reach {
+  position: absolute;
+  left: 11px;
+  width: 1px;
+  background: var(--brass-28);
+  box-shadow: var(--dg-casing);
+  transition: background var(--hover-ms) ease;
+}
+
+/* ---- graduations: minor every 50 m, major (numbered) every 200 m -------- */
+.dg-tick {
+  position: absolute;
+  left: 6px;
+  width: 5px; /* flush to the hairline, growing toward the numerals */
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--brass-20);
+  box-shadow: var(--dg-casing);
+  transition: background var(--hover-ms) ease;
+}
+.dg-tick.major {
+  left: 2px;
+  width: 9px;
+  background: var(--brass-28);
+}
+
+/* ---- the set-point bug: where the vessel is HEADED --------------------- */
+.dg-bug {
+  position: absolute;
+  left: 7px;
+  width: 8px;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--brass-50);
+  opacity: 0;
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- the needle: the plate's 2x10px amber gauge needle, on its side ----- */
+.dg-needle {
+  position: absolute;
+  left: 4px;
+  width: 14px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--amber);
+  box-shadow:
+    0 0 7px rgba(255, 195, 122, 0.8),
+    0 0 3px 1px rgba(2, 4, 7, 0.62);
+  pointer-events: none;
+}
+
+/* ---- the readout rides the needle -------------------------------------- */
+.dg-read {
+  position: absolute;
+  left: 66px;
+  top: 0;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.dg-value {
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  text-shadow: var(--dg-halo);
+}
+/* the zone name is what makes this a PLACE and not a slider */
+.dg-zone {
+  font: 500 10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--amber-bright);
+  opacity: 0.7;
+  text-shadow: var(--dg-halo);
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- awake (hover / focus / drag): one step up, 180ms ------------------ */
+#depthgauge.awake .dg-num {
+  color: var(--warm-50);
+}
+#depthgauge.awake .dg-tick {
+  background: var(--brass-28);
+}
+#depthgauge.awake .dg-tick.major {
+  background: var(--brass-50);
+}
+#depthgauge.awake .dg-column::before {
+  background: var(--brass-20);
+}
+#depthgauge.awake .dg-reach {
+  background: var(--brass-50);
+}
+#depthgauge.awake .dg-zone {
+  opacity: 0.85;
+}
+
+/* ---- State C ambient: sinks with the rest of the chrome ---------------- */
+body.ambient #depthgauge {
+  transform: translateY(130px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 1200ms cubic-bezier(0.55, 0, 0.85, 0.45) 80ms,
+    opacity 1000ms ease 220ms;
+}
+/* the strip sets pointer-events:auto, so it must be switched off explicitly */
+body.ambient #depthgauge .dg-column {
+  pointer-events: none;
+}
+
+/* ---- boot gate (same rule as the rest of the chrome) ------------------- */
+body:not(.booted) #depthgauge {
+  visibility: hidden;
+}

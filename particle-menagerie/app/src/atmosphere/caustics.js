@@ -149,13 +149,23 @@ void main() {
 	float v = vUv.y;
 
 	// Soft gaussian across the width, windowed to zero at the quad edge.
-	float across = exp( -u * u * 2.6 ) * max( 1.0 - u * u, 0.0 );
+	// Soft gaussian across the width, windowed to zero at the quad edge. The
+	// window is squared so the shaft has no hard lateral edge — an unsquared
+	// window leaves a visible straight boundary that reads as a solid wedge
+	// (a curtain of light has no edges, only a falloff).
+	float w = max( 1.0 - u * u, 0.0 );
+	float across = exp( -u * u * 3.1 ) * w * w;
 
 	// Fade along the shaft: a short ease off the surface film (so the mouth is
 	// bright but not a hard rectangle edge) and a soft dissolve at the tip.
 	// The real downward falloff is the depth absorption in the vertex shader —
 	// this only shapes the ends.
-	float along = smoothstep( 0.0, 0.05, v ) * max( 1.0 - v * v, 0.0 );
+	// Fade along the shaft: a short ease off the surface film (so the mouth is
+	// bright but not a hard rectangle edge) and a long cubic dissolve at the
+	// tip — a quadratic ended in a visible point, which read as a stalactite
+	// rather than as light losing itself in the water.
+	float tip = max( 1.0 - v, 0.0 );
+	float along = smoothstep( 0.0, 0.08, v ) * tip * tip * tip;
 
 	// Scrolling internal bands (the cheap stand-in for a caustic mask —
 	// breakdown §2.5): a faint 1D modulation drifting slowly down-shaft.

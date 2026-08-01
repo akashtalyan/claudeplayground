@@ -43,6 +43,8 @@ import {
   steerDepth,
   clampToBand,
   worldYForDepth,
+  floorYAt,
+  depthUnits,
 } from './depthbands.js';
 import { initSummon } from './ui/summon.js';
 import { initPlate } from './ui/plate.js';
@@ -573,7 +575,13 @@ function boot() {
       const o = this.points;
       const z0 = o.position.z;
       const z1 = Math.min(z0 + this.zOff, camDist - 140);
-      if (this.klass === 'rooted') o.position.y = seabedYAt(this.px, z1) + (this.liftPx || 0);
+      // v3.5: rooted things stand on the substrate at THEIR OWN depth — the
+      // shelf bench for a kelp holdfast at 13 m, the abyssal plain for
+      // anything that genuinely lives down there. Passing homeM is what
+      // reaches the shelf at all (seabedYAt with no depth = the plain).
+      if (this.klass === 'rooted') {
+        o.position.y = seabedYAt(this.px, z1, this.homeM) + (this.liftPx || 0);
+      }
       o.position.z = z1;
     }
 
@@ -1579,6 +1587,9 @@ function boot() {
     gather, // v3.2 beacon (null in spike scenes): setPoint / clear / info / steer
     capture, // Phase E I/O (null in spike scenes): snapshotPNG / toggleRecording
     atmosphere, // Phase E layers (null in spike scenes): caustics/sediment/ao
+    // v3.5 debug/harness surface: the substrate resolver and unit wiring, so a
+    // test can prove a rooted creature is standing on the ground it should be.
+    depth: { floorYAt, units: () => depthUnits() },
     column, // v3.4 water column (null in spike scenes) — createColumn's API
     // Phase F telemetry (live object, mutated in place): {level, framesMsP50,
     // engaged:[...], off, reason} — off===true (reason 'fixedstep' or
@@ -1672,7 +1683,7 @@ function boot() {
             depthM: column ? column.worldYToMetres(c.py) : 0,
             homeM: c.homeM ?? null,
             y: c.py,
-            floorY: seabedYAt(c.px, c.pz),
+            floorY: seabedYAt(c.px, c.pz, c.homeM),
             visible: c.points.visible,
           })),
     },

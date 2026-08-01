@@ -36,6 +36,13 @@
 //     rooted species resolves to the seabed band, and placeDepth plants it on
 //     the actual local floor — no override, no exception.
 
+// v3.5: researched bands. Plain JSON (vite inlines it, so the build stays a
+// single offline file) and no three.js in the path, so this module is still
+// node-importable for the harness and the geometry benches.
+import OCEAN from './data/ocean-data.json' with { type: 'json' };
+
+const DATA_BANDS = (OCEAN && OCEAN.bands) || {};
+
 // ---------------------------------------------------------------------------
 // Units adapter — the ONE place this module touches world px
 // ---------------------------------------------------------------------------
@@ -153,9 +160,12 @@ export function floorDepthM() {
 
 /** World Y of the floor under (x, z) — the column's relief if it supplied one,
  *  otherwise the flat nominal seabed plane. */
-export function floorYAt(x, z) {
+export function floorYAt(x, z, nearDepthM) {
   const u = ensureUnits();
-  return u.floorYAt ? u.floorYAt(x || 0, z || 0) : u.yOf(u.seabedDepthM);
+  // v3.5: nearDepthM reaches the continental shelf (column.js seabedYAt's
+  // optional third argument). Without it every rooted thing lands on the
+  // abyssal plain — which is how kelp ended up in the dark.
+  return u.floorYAt ? u.floorYAt(x || 0, z || 0, nearDepthM) : u.yOf(u.seabedDepthM);
 }
 
 /** World px per metre — for anything that needs to size a vertical motion. */
@@ -519,6 +529,14 @@ function lookupWord(w) {
 export function bandFor(nameOrArch) {
   const key = bandKeyFor(nameOrArch);
   if (!key) return DEFAULT_BAND;
+  // v3.5: bands derived from researched depth ranges (src/data/ocean-data.json)
+  // WIN over the hand-authored table. This is the ecology fix — the authored
+  // bands put every rooted plant and floor animal on the 1200 m abyssal plain,
+  // including kelp, coral and seagrass, which are photosynthetic and cannot
+  // live below the light. Where the data has no entry the authored band still
+  // applies, so nothing loses its home.
+  const d = has(DATA_BANDS, key) ? DATA_BANDS[key] : null;
+  if (d && d.kind) return d;
   const b = has(SPECIES_BANDS, key) ? SPECIES_BANDS[key] : has(ARCH_BANDS, key) ? ARCH_BANDS[key] : null;
   return b && b.kind ? b : DEFAULT_BAND;
 }
@@ -694,7 +712,10 @@ export function placeDepth(o) {
   const x = o.x || 0;
   const z = o.z || 0;
   if (band.kind === 'rooted') {
-    const y = floorYAt(x, z) + (o.liftPx || 0);
+    // The band's preferred depth chooses WHICH substrate this thing stands on:
+    // the shelf bench for a shallow, light-dependent plant, the abyssal plain
+    // for anything that genuinely lives down there.
+    const y = floorYAt(x, z, band.preferM) + (o.liftPx || 0);
     return {
       band,
       kind: 'rooted',
@@ -706,7 +727,7 @@ export function placeDepth(o) {
   }
   if (band.kind === 'benthic') {
     const hoverM = pickHover(band, seed, instance);
-    const y = floorYAt(x, z) + hoverM * pxPerMetre() + (o.liftPx || 0);
+    const y = floorYAt(x, z, band.preferM) + hoverM * pxPerMetre() + (o.liftPx || 0);
     return {
       band,
       kind: 'benthic',
@@ -810,7 +831,7 @@ export function targetDepthFor(creature, t) {
 export function targetWorldY(creature, t) {
   const b = bandOf(creature);
   const lift = creature.liftPx || 0; // survives placement (see attachDepth)
-  if (b.kind === 'rooted') return floorYAt(creature.px || 0, creature.pz || 0) + lift;
+  if (b.kind === 'rooted') return floorYAt(creature.px || 0, creature.pz || 0, creature.homeM) + lift;
   if (b.kind === 'benthic') {
     const hover = creature.hoverM != null ? creature.hoverM : b.hoverM;
     return floorYAt(creature.px || 0, creature.pz || 0) + hover * pxPerMetre() + lift;
@@ -864,7 +885,12 @@ export function clampToBand(creature, slackM) {
   const b = bandOf(creature);
   const s = slackM || 0;
   if (b.kind === 'rooted') {
-    creature.py = floorYAt(creature.px || 0, creature.pz || 0) + (creature.liftPx || 0);
+    // v3.5: query the substrate at the plant's OWN depth. Without the third
+    // argument this re-plants every frame onto the abyssal plain — which
+    // silently undid the correct shelf placement made at spawn, so kelp kept
+    // its shallow homeM while its body sat at 1200 m in the dark.
+    const nearM = creature.homeM ?? b.preferM;
+    creature.py = floorYAt(creature.px || 0, creature.pz || 0, nearM) + (creature.liftPx || 0);
     return true;
   }
   const m = depthForWorldY(creature.py);

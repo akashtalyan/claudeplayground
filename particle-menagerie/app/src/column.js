@@ -1,22 +1,31 @@
-// The water column — v3.4. The world stops being one flat screen-sized slice
+// The water column — v3.5. The world stops being one flat screen-sized slice
 // and becomes a TALL VERTICAL COLUMN of ocean: a bright rippling surface
 // overhead, 1200 m of water, an abyssal seabed at the bottom. The camera is a
 // vessel that travels vertically through it; creatures live at their species'
 // natural depth and STAY there.
 //
+// v3.5 adds the CONTINENTAL SHELF. Until now the column had exactly one bottom
+// — the abyssal plain at 1200 m — which meant every photosynthetic organism in
+// the app was rooted in permanent darkness. Real kelp forests, coral heads,
+// seagrass and anemones grow on a shallow rocky bench in the sunlit zone, so
+// the column now has TWO substrates (see "the shelf" below) and one query that
+// answers which one is under you.
+//
 // This module is the SINGLE SOURCE OF TRUTH for the vertical world:
 //
-//   * the metre <-> world-px scale (METRES_PER_PX / PX_PER_METRE) and the two
-//     boundary planes (SURFACE_Y, SEABED_Y). Every other module — atmosphere,
-//     species depth bands, the console's depth gauge, background — imports its
-//     numbers FROM HERE and never re-derives them.
+//   * the metre <-> world-px scale (METRES_PER_PX / PX_PER_METRE) and the
+//     boundary planes (SURFACE_Y, SHELF_Y, SEABED_Y). Every other module —
+//     atmosphere, species depth bands, the console's depth gauge, background —
+//     imports its numbers FROM HERE and never re-derives them.
 //   * the camera's vertical position and its navigation (wheel, arrow keys,
 //     PageUp/PageDown, Home/End), with critically-damped motion: a submarine
 //     has mass, so the porthole eases to a new depth, it never snaps.
-//   * the two scene layers that make the column read as a bounded volume: a
-//     dotted seabed plane at the bottom and a shimmering surface ceiling at
-//     the top, both drawn with the ONE dot shader program (frame-graph rule 7)
-//     — no new GLSL, no terrain mesh.
+//   * the three scene layers that make the column read as a bounded volume: a
+//     dotted seabed plane at the bottom, a reef bench in the sunlit zone and a
+//     shimmering surface ceiling at the top, all drawn with the ONE dot shader
+//     program (frame-graph rule 7) — no new GLSL, no terrain mesh.
+//   * the SUBSTRATE QUERY — substrateAt() / seabedYAt() — the one function the
+//     rest of the app asks "where is the ground near this depth".
 //   * culling info, so the integrator can skip target math for creatures far
 //     outside the visible band (the real perf win once the world is tall).
 //
@@ -110,20 +119,26 @@ export function lightAt(m) {
   return Math.exp(-Math.max(m, 0) / 240);
 }
 
-// ---- seabed relief --------------------------------------------------------
+function smoothstep01(t) {
+  return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+}
+
+// ---- the abyssal plain ----------------------------------------------------
 // A pure, deterministic dune field: three incommensurate sines, no storage, no
-// RNG. Rooted flora are planted ON it (seabedYAt(x, z)) so plants and the dot
-// floor agree exactly. Amplitude ±75 px ≈ ±15 m of gentle relief.
-// Wavelengths (~2400 / 900 / 400 world px) are sized to the strip of floor the
-// porthole actually frames — longer ones read as a flat plateau, not dunes.
+// RNG. Deep-water flora and the benthos are planted ON it (see the substrate
+// query below) so plants and the dot floor agree exactly. Amplitude ±75 px ≈
+// ±15 m of gentle relief. Wavelengths (~2400 / 900 / 400 world px) are sized to
+// the strip of floor the porthole actually frames — longer ones read as a flat
+// plateau, not dunes.
 const RIDGE = [
   { a: 42, kx: 0.0026, kz: 0.0017, ph: 0.7 },
   { a: 22, kx: 0.0068, kz: -0.0031, ph: 2.3 },
   { a: 11, kx: 0.0155, kz: 0.0, ph: 1.1 },
 ];
 
-/** World Y of the seabed surface under a world (x, z). */
-export function seabedYAt(x, z) {
+/** World Y of the ABYSSAL PLAIN under a world (x, z). Always the deep floor —
+ *  this is the 1200 m plane and it has no opinion about the shelf. */
+export function abyssalYAt(x, z) {
   let y = SEABED_Y;
   for (let i = 0; i < RIDGE.length; i++) {
     const r = RIDGE[i];
@@ -134,6 +149,202 @@ export function seabedYAt(x, z) {
 
 /** Max relief above/below the mean plane — placement guards and layer culling. */
 export const RIDGE_AMP = RIDGE[0].a + RIDGE[1].a + RIDGE[2].a;
+
+// ---- the continental shelf ------------------------------------------------
+// The second substrate: a rocky reef BENCH in the sunlit zone, the only ground
+// in the column that light-dependent life can actually grow on. Same idiom as
+// the abyssal plain — one pure function of (x, z), no mesh, no storage, no RNG
+// — plus one thing the plain does not have: an EDGE.
+//
+// Depth. The bench sits at SHELF_DEPTH_M with ±SHELF_AMP of reef relief, i.e.
+// its rock spans ~29-45 m. That is the honest window: it is deep enough that
+// the vessel can hover ABOVE it at every viewport height (see MIN_DEPTH_CAP_M),
+// and shallow enough to sit inside the 8-45 m band where kelp holdfasts, coral
+// heads, seagrass and anemones really do grow. Nothing here shortens the water:
+// the bench is ground, so the water above it is the water above it.
+//
+// Wavelengths are ~2000 / 800 / 350 world px — deliberately shorter than the
+// abyssal dunes. A reef is lumpier than a sediment plain, and at the grazing
+// angle you see the bench from (you can only get ~10-20 m above it) short
+// wavelengths are what read as relief at all.
+/** Mean depth of the shelf bench, metres below the surface. */
+export const SHELF_DEPTH_M = 37;
+const REEF = [
+  { a: 22, kx: 0.0031, kz: 0.0019, ph: 2.1 },
+  { a: 11, kx: 0.0079, kz: -0.0043, ph: 0.4 },
+  { a: 6, kx: 0.0182, kz: 0.0091, ph: 3.3 },
+];
+
+/** World Y of the shelf bench's mean plane (reef relief undulates about it). */
+export const SHELF_Y = SURFACE_Y - SHELF_DEPTH_M * PX_PER_METRE;
+/** Max reef relief above/below that mean plane, in world px. */
+export const SHELF_AMP = REEF[0].a + REEF[1].a + REEF[2].a;
+/** Shallowest / deepest rock on the bench proper, in metres. */
+export const SHELF_TOP_M = SHELF_DEPTH_M - SHELF_AMP * METRES_PER_PX;
+export const SHELF_BASE_M = SHELF_DEPTH_M + SHELF_AMP * METRES_PER_PX;
+
+// The shelf EDGE, and why it is where it is. The bench occupies the near and
+// middle field and rolls over into the drop-off at SHELF_EDGE_Z, which is
+// BEYOND the z band the app places creatures in (main.js: Z_MIN = -340) — so
+// every creature the board can place has real rock under it, and the lip is a
+// thing you look AT rather than a hole things fall through.
+//
+// The lip is scalloped by two long sines of x, because a ruler-straight rim
+// reads as a drawn line and a wandering one reads as coast. Its extremes are
+// [-574, -366] world px, still clear of the creature band.
+//
+// The drop-off itself is a SUGGESTION, not a continental slope, and it has to
+// be: the dot pass has no depth test (frame-graph rule 1 — additive, depthTest
+// off), so a tall slope face drawn past the lip would composite straight
+// THROUGH the bench in front of it and read as ghosting, not as a cliff. So
+// the substrate rolls over, accelerates downward, and its dots are gone within
+// SHELF_COVER_END of the run — the ground curves away and dissolves into blue.
+// That is the whole drop-off, and it costs one multiply per dot at rebuild.
+const SHELF_EDGE_Z = -470;
+const SHELF_RUN_PX = 330; // lip -> toe, along z
+const SHELF_FALL_PX = 300; // total plunge across that run (60 m)
+const SHELF_COVER_END = 0.55; // fraction of the run where the last dot dies
+/** World z at which the shelf substrate has ended completely. */
+export const SHELF_TOE_Z = SHELF_EDGE_Z - SHELF_RUN_PX;
+
+/** World z of the shelf lip at a given x — the scalloped rim. */
+function shelfEdgeZAt(x) {
+  return SHELF_EDGE_Z + 74 * Math.sin(x * 0.0034 + 1.7) + 30 * Math.sin(x * 0.0091 - 0.6);
+}
+
+/** 0 on the bench, 1 at the toe of the drop-off. */
+function shelfRollover(x, z) {
+  const u = (shelfEdgeZAt(x) - z) / SHELF_RUN_PX;
+  return u <= 0 ? 0 : u >= 1 ? 1 : u;
+}
+
+/** World Y of the shelf's rock surface under a world (x, z). Valid wherever
+ *  shelfCoverAt(x, z) > 0; past the toe it keeps falling but nothing is drawn
+ *  there and the substrate query stops answering "shelf". */
+export function shelfYAt(x, z) {
+  let y = SHELF_Y;
+  for (let i = 0; i < REEF.length; i++) {
+    const r = REEF[i];
+    y += r.a * Math.sin(x * r.kx + z * r.kz + r.ph);
+  }
+  const u = shelfRollover(x, z);
+  return u > 0 ? y - SHELF_FALL_PX * u * u : y;
+}
+
+/** How much shelf there is at (x, z): 1 on the bench, easing to 0 across the
+ *  drop-off, 0 in the open water beyond it. Both the dot layer's per-dot fade
+ *  and the substrate query read this, so what you can SEE and what a creature
+ *  can STAND ON are the same surface by construction. */
+export function shelfCoverAt(x, z) {
+  const u = shelfRollover(x, z);
+  return u <= 0 ? 1 : 1 - smoothstep01(u / SHELF_COVER_END);
+}
+
+/** Deepest depth (metres) at which the shelf is still the answer. Past this a
+ *  creature is in open water over the drop-off and its ground is the abyssal
+ *  plain — the query never invents rock at a depth that has none. Sits just
+ *  below the visible toe of the roll-over (~45 m + 18 m of fall). */
+export const SHELF_REACH_M = 70;
+
+// ---- the substrate query --------------------------------------------------
+// ONE question, asked everywhere: "what is the ground near THIS depth, under
+// THIS (x, z)?". v3.4 had a single floor and so a single answer, seabedYAt(x,
+// z). v3.5 has two substrates, so the question needs the depth to disambiguate
+// — a holdfast at 20 m means the reef bench, a crab at 1195 m means the plain.
+//
+// Back-compatibility is exact and deliberate: with two arguments seabedYAt is
+// the v3.4 function, bit for bit, and every existing call site (main.js's
+// rooted re-planting, depthbands.js's floorYAt adapter, this module's own
+// seabed sheet) keeps the abyssal plain it has always had. The shelf is only
+// ever reachable by passing the third argument.
+
+/** Substrate identifiers — 'shelf' (the sunlit reef bench) or 'plain' (the
+ *  abyssal plain at 1200 m). Stable strings; safe to compare and to label. */
+export const SUBSTRATE_SHELF = 'shelf';
+export const SUBSTRATE_PLAIN = 'plain';
+
+const substrateOut = {
+  kind: SUBSTRATE_PLAIN,
+  y: SEABED_Y,
+  depthM: SEABED_DEPTH_M,
+  coverage: 1,
+  shelf: false,
+};
+
+/**
+ * The ground near a depth, as a record.
+ *
+ *   const g = substrateAt(x, z, 22);   // { kind:'shelf', y, depthM, coverage }
+ *   const g = substrateAt(x, z, 1195); // { kind:'plain', ... }
+ *   const g = substrateAt(x, z);       // no depth given -> the plain
+ *
+ * @param {number} x world x
+ * @param {number} z world z
+ * @param {number} [nearDepthM] the depth (metres below the surface) the caller
+ *        cares about — typically the creature's own home depth. Omit for the
+ *        abyssal plain, which is what the v3.4 world always answered.
+ * @param {object} [out] a caller-owned record to fill (for anything on a frame
+ *        path that wants to keep more than one alive at a time).
+ * @returns {{kind:string, y:number, depthM:number, coverage:number, shelf:boolean}}
+ *        `y` is the world Y of the rock/sediment surface; `depthM` the same in
+ *        metres; `coverage` is 1 on solid ground and eases to 0 across the
+ *        shelf's drop-off (always 1 on the plain). WITHOUT `out` this is a
+ *        SHARED object — read it, don't retain it (no frame-path allocation).
+ */
+export function substrateAt(x, z, nearDepthM, out) {
+  const rec = out || substrateOut;
+  const px = x || 0;
+  const pz = z || 0;
+  const m = nearDepthM == null ? null : +nearDepthM;
+  if (m != null && Number.isFinite(m) && m <= SHELF_REACH_M) {
+    const cover = shelfCoverAt(px, pz);
+    if (cover > 0) {
+      const y = shelfYAt(px, pz);
+      rec.kind = SUBSTRATE_SHELF;
+      rec.y = y;
+      rec.depthM = worldYToMetres(y);
+      rec.coverage = cover;
+      rec.shelf = true;
+      return rec;
+    }
+  }
+  const y = abyssalYAt(px, pz);
+  rec.kind = SUBSTRATE_PLAIN;
+  rec.y = y;
+  rec.depthM = worldYToMetres(y);
+  rec.coverage = 1;
+  rec.shelf = false;
+  return rec;
+}
+
+/** World Y of the ground near a depth — substrateAt(...).y, allocation-free. */
+export function substrateYAt(x, z, nearDepthM) {
+  return substrateAt(x, z, nearDepthM).y;
+}
+
+/**
+ * World Y of the ground under a world (x, z).
+ *
+ *   seabedYAt(x, z)      -> the abyssal plain (v3.4 behaviour, unchanged)
+ *   seabedYAt(x, z, 20)  -> the shelf bench, if there is shelf at (x, z)
+ *   seabedYAt(x, z, 900) -> the abyssal plain (nothing lives on rock at 900 m)
+ *
+ * The third argument is the ONLY way to reach the shelf, so no existing caller
+ * can be surprised by it.
+ */
+export function seabedYAt(x, z, nearDepthM) {
+  if (nearDepthM == null) return abyssalYAt(x, z);
+  return substrateAt(x, z, nearDepthM).y;
+}
+
+/** True if there is standing ground at (x, z) for something living at this
+ *  depth — i.e. the shelf query would answer 'shelf' and the rock is actually
+ *  drawn there (coverage above the given threshold, default 0.35, so a plant
+ *  is never rooted on a ghost at the fading lip of the drop-off). */
+export function hasShelfAt(x, z, nearDepthM, minCover) {
+  if (nearDepthM != null && +nearDepthM > SHELF_REACH_M) return false;
+  return shelfCoverAt(x || 0, z || 0) >= (minCover == null ? 0.35 : minCover);
+}
 
 // ---------------------------------------------------------------------------
 // Camera motion + layer tuning
@@ -175,6 +386,20 @@ const PAGE_FRAC = 0.8; // PageUp/Down = this fraction of the visible band
 const SURFACE_STOP = 0.6;
 const SEABED_STOP = 1.15;
 
+// ...and, v3.5, a hard metre cap on the shallow stop. The rule above is purely
+// FRACTIONAL, so the shallowest reachable depth scales with the viewport: 32 m
+// on the 540 px test viewport, 50 m on a laptop, 72 m on a tall display. That
+// is fine for a column whose only floor is at 1200 m and fatal for one with a
+// reef bench at 29-45 m — on any window taller than ~900 px the vessel could
+// never get ABOVE the shelf, and ground you can only ever look up at is not
+// ground. The cap makes the shallow stop viewport-INDEPENDENT once the
+// viewport is big enough to matter, and 26 m clears the shallowest reef crest
+// (SHELF_TOP_M = 29.2 m) by 5 m of water at every size.
+//
+// It is a ceiling, never a floor: on a short viewport SURFACE_STOP still wins,
+// so the porthole is never pushed up through the waterline.
+const MIN_DEPTH_CAP_M = 24;
+
 // Layer extents, expressed as VIEW DISTANCE as a fraction of camDist — not as
 // absolute z. A ground plane's near edge has to come close enough to the lens
 // to run off the bottom of the frame (at 0.38x camDist the floor projects ~355
@@ -194,6 +419,17 @@ const VD_FAR = 2.4; // z = -1.4 x camDist — far enough to haze, near enough to
 // back to 0.85 x camDist puts its nearest dots ~470 px away, where the ceiling
 // reads as a rippling boundary above you instead of confetti in your face.
 const SURFACE_VD_NEAR = 0.85;
+// The shelf pulls the OTHER way, and for the mirror-image reason. The abyssal
+// plain is seen from 60-100 m up, so 0.38 x camDist already runs its near edge
+// off the bottom of the frame. The bench is seen from 3-19 m up (that is as
+// high as the vessel gets over it), and at that grazing height a near edge held
+// back to 0.38 x camDist projects only ~145 px below the axis — the ground
+// stops in mid-frame with empty water under it, which is exactly the "thin band
+// floating at mid-screen" failure VD_NEAR exists to prevent. 0.19 puts the
+// nearest rock ~100 px from the lens, which projects past the bottom edge at
+// every height the vessel can hover at. Sprite size is unaffected: aSize is
+// authored per dot in CSS px at its own view distance.
+const SHELF_VD_NEAR = 0.19;
 const HORIZON_BIAS = 1.35; // >1 crowds samples toward the far end, which is
 // what turns a scatter into a ridge line at the horizon
 const LAYER_MARGIN_PX = 140; // relief/ripple slack on the visibility test
@@ -206,10 +442,53 @@ const SEABED_ALPHA = 0.8;
 // surface rather than a second creature.
 const SURFACE_ALPHA = 0.5;
 
+// The shelf is GROUND SEEN THROUGH WATER, and the water it is seen through is
+// the brightest in the column. That is the whole tuning problem: the abyssal
+// plain can afford 0.8 alpha because it is the only thing emitting for 200 m
+// in every direction, whereas a sheet that bright at 37 m would composite onto
+// already-lit sunlit water as a slab and flatten the one zone whose identity is
+// "there is still daylight here". So the bench is authored dim and then dimmed
+// AGAIN by shelfExposure() below.
+const SHELF_ALPHA = 0.46;
+// How the reef leaves you as you sink past it. Descending off the shelf edge is
+// the app's one moment of "leaving a lit reef behind", and the shape of that
+// exit is the whole beat: NOT a linear dissolve (which reads as a fade-out
+// effect) but the extinction of contrast through the water between the porthole
+// and the rock — fast at first, then a long dim tail, exactly like watching a
+// reef go as you drop off its edge.
+//
+// SHELF_SINK_M is that extinction length. The cutoff terms then take it to
+// exactly zero at ~92 m, which is why the shelf contributes NOTHING at the
+// app's neutral 120 m: every v3.4 frame at or below that depth is untouched,
+// down to the draw call.
+const SHELF_SINK_M = 26; // e-folding depth of the reef's contrast, metres
+const SHELF_CUT_FROM_M = 30; // metres below the bench where the tail is cut...
+const SHELF_CUT_SPAN_M = 25; // ...over this many more, to zero
+
+/**
+ * The shelf layer's own light, 0..1, for a vessel at camM metres.
+ *
+ * Three terms, all physical rather than aesthetic: whether you are above the
+ * bench at all, how much water is between the porthole and the rock, and how
+ * much daylight is still reaching that depth (lightAt — the same Beer-Lambert
+ * curve the depth profile keys its optics to). None of them is a taste knob;
+ * together they are the reason the bench never reads as a lit slab floating in
+ * the sunlit zone.
+ */
+function shelfExposure(camM) {
+  const lit = 0.58 + 0.42 * lightAt(camM);
+  const below = camM - SHELF_DEPTH_M;
+  if (below <= 0) return lit; // hovering over the reef: full contrast
+  const cut = 1 - smoothstep01((below - SHELF_CUT_FROM_M) / SHELF_CUT_SPAN_M);
+  if (cut <= 0) return 0;
+  return lit * Math.exp(-below / SHELF_SINK_M) * cut;
+}
+
 // ---------------------------------------------------------------------------
 // A dotted sheet: one Points object lying on a horizontal plane, sampled so it
 // fills the frustum at every depth and crowds toward the horizon (which is why
-// it reads as a floor/ceiling and not a scatter). Shared by seabed + surface.
+// it reads as a floor/ceiling and not a scatter). Shared by seabed + shelf +
+// surface.
 // ---------------------------------------------------------------------------
 
 function buildSheet(scene, globalUniforms, cfg) {
@@ -298,7 +577,17 @@ function buildSheet(scene, globalUniforms, cfg) {
   function rebuild(w, h, camDist) {
     const halfW = w / 2 + 140;
     const invNear = 1 / ((cfg.vdNear ?? VD_NEAR) * camDist);
-    const invFar = 1 / ((cfg.vdFar ?? VD_FAR) * camDist);
+    // cfg.farZ pins the far edge to an ABSOLUTE world z instead of a fraction
+    // of camDist. A sheet with a real edge in the world (the shelf's drop-off)
+    // has to end where the world says it ends, not where the viewport does, or
+    // half its dots land past the toe and are drawn at zero alpha. Sheets
+    // without it are untouched: the fraction path is the v3.4 arithmetic.
+    const farVd =
+      cfg.farZ != null
+        ? Math.max(camDist - cfg.farZ, camDist * 1.05)
+        : (cfg.vdFar ?? VD_FAR) * camDist;
+    const invFar = 1 / farVd;
+    const fadeAt = cfg.fadeAt || null;
     for (let i = 0; i < N; i++) {
       const vd = 1 / (invFar + (invNear - invFar) * sn[i]);
       const z = camDist - vd;
@@ -314,7 +603,14 @@ function buildSheet(scene, globalUniforms, cfg) {
       // this dot's own depth, shrinking a little into the haze of the horizon.
       // The far end stays just above the shader's 1.5-raster-px fade, or the
       // ridge line the crowding builds would be alpha'd away to nothing.
-      aSize[i] = sz0[i] * (1 - sizeFar * (1 - sn[i])) * (vd / REF_DIST);
+      let px = sz0[i] * (1 - sizeFar * (1 - sn[i])) * (vd / REF_DIST);
+      // Optional per-dot coverage: where the substrate is only partly there
+      // (the shelf's drop-off) the dot shrinks, and the shader's own
+      // sub-1.5-raster-px fade (frame-graph rule 8) takes its alpha to zero on
+      // the way. No second material, no per-dot alpha attribute, no blend
+      // change — the ground simply dissolves.
+      if (fadeAt) px *= fadeAt(x, z);
+      aSize[i] = px;
     }
     posAttr.needsUpdate = true;
     sizeAttr.needsUpdate = true;
@@ -406,7 +702,7 @@ export function createColumn(scene, globalUniforms, opts = {}) {
 
   function recomputeRange() {
     halfBandM = (H / 2) * METRES_PER_PX;
-    let lo = SURFACE_STOP * halfBandM;
+    let lo = Math.min(SURFACE_STOP * halfBandM, MIN_DEPTH_CAP_M);
     let hi = SEABED_DEPTH_M - SEABED_STOP * halfBandM;
     if (hi < lo) {
       // pathological viewport taller than the whole column: park in the middle
@@ -455,7 +751,7 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     ? buildSheet(scene, globalUniforms, {
         count: opts.seabedCount ?? 760,
         seed: baseSeed ^ 0x5eab3d00,
-        planeYAt: seabedYAt,
+        planeYAt: abyssalYAt, // v3.4's seabedYAt(x, z), now under its own name
         relLo: 0,
         relHi: 26, // a little loft: silt sitting proud of the floor
         sizeLo: 2.2,
@@ -465,6 +761,50 @@ export function createColumn(scene, globalUniforms, opts = {}) {
         alpha: SEABED_ALPHA,
         twk: [0.9, 0.3], // barely-there — the floor is still, the water is not
         ripple: null,
+      })
+    : null;
+
+  // The reef bench. Same builder, same one dot program; the differences are
+  // all in the cfg and every one of them is doing a job:
+  //   planeYAt/fadeAt  the shelf's own pure surface + its drop-off coverage, so
+  //                    the dots and the substrate query are literally the same
+  //                    function — a plant is never rooted in mid-water and
+  //                    never buried in rock.
+  //   farZ             the sheet ends where the SHELF ends (the toe of the
+  //                    roll-over), not where the frustum ends.
+  //   count 2400       three times the abyssal plain's, and it has to be. The
+  //                    plain is read against 200 m of black water in every
+  //                    direction, where a sparse scatter is unambiguous; the
+  //                    bench is read against LIT water full of plankton,
+  //                    sediment and caustics, and at that contrast a scatter is
+  //                    just more snow. Only density makes it a surface.
+  //   relHi 16          ~3 m of turf and rubble standing proud of the rock: the
+  //                    bench has thickness, but a tight mat, not a cloud.
+  //   sizeFar 0.5      the far grain is half the near grain — the texture
+  //                    gradient that makes a stipple recede instead of hang.
+  //   colour           unsaturated grey-green: algal turf and wet limestone
+  //                    with the red already eaten by 37 m of water. Warmer than
+  //                    the water, far duller than a creature.
+  //   ripple null      rock is still. The abyssal plain is still for the same
+  //                    reason; the shallows' dapple comes from the shader's own
+  //                    twinkle, which costs nothing per frame.
+  const shelf = wantLayers
+    ? buildSheet(scene, globalUniforms, {
+        count: opts.shelfCount ?? 2400,
+        seed: baseSeed ^ 0x5e1f0b00,
+        planeYAt: shelfYAt,
+        fadeAt: shelfCoverAt,
+        vdNear: SHELF_VD_NEAR,
+        farZ: SHELF_TOE_Z,
+        relLo: 0,
+        relHi: 16,
+        sizeLo: 3.0,
+        sizeHi: 5.2,
+        sizeFar: 0.5,
+        color: [0.58, 0.62, 0.56],
+        alpha: SHELF_ALPHA,
+        twk: [1.15, 0.34],
+        ripple: null, // rock is still; the dapple is the shader's twinkle
       })
     : null;
 
@@ -487,7 +827,15 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     : null;
 
   if (seabed) seabed.rebuild(W, H, camDist);
+  if (shelf) shelf.rebuild(W, H, camDist);
   if (surface) surface.rebuild(W, H, camDist);
+
+  // The shelf's intensity is DRIVEN (by depth, every frame), so a caller's
+  // setIntensity() has to survive being driven: it sets the base the driver
+  // multiplies, not the uniform. `shelfApplied` is the last value actually
+  // written, so the uniform is touched only when it moves.
+  let shelfBase = 1;
+  let shelfApplied = -1;
 
   // ---- geometry helpers --------------------------------------------------
 
@@ -591,6 +939,28 @@ export function createColumn(scene, globalUniforms, opts = {}) {
       seabed.points.visible = vis;
       if (vis) seabed.setTime(simT);
     }
+    if (shelf) {
+      // Two gates, and they do different jobs. The geometric one is the same
+      // band test the other sheets use (is the bench anywhere near the
+      // porthole). The exposure one is the honest one: below ~92 m there is
+      // simply too much water between you and a 37 m reef to see it, so the
+      // layer is skipped WHOLE — no draw call, no ripple loop, no upload — and
+      // every frame from the app's neutral depth downward costs exactly what it
+      // cost in v3.4.
+      const expo = shelfExposure(curM);
+      const vis =
+        expo > 0.004 &&
+        Math.abs(SHELF_Y - camYCur) <= layerReach + SHELF_AMP + SHELF_FALL_PX;
+      shelf.points.visible = vis;
+      if (vis) {
+        const want = shelfBase * expo;
+        if (Math.abs(want - shelfApplied) > 1e-4) {
+          shelf.setIntensity(want);
+          shelfApplied = want;
+        }
+        shelf.setTime(simT);
+      }
+    }
     if (surface) {
       const vis = Math.abs(SURFACE_Y - camYCur) <= layerReach;
       surface.points.visible = vis;
@@ -679,6 +1049,7 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     camYCur = metresToWorldY(curM);
     camYPrev = camYCur;
     if (seabed) seabed.rebuild(W, H, camDist);
+    if (shelf) shelf.rebuild(W, H, camDist);
     if (surface) surface.rebuild(W, H, camDist);
     if (opts.onCamera) opts.onCamera(camYCur);
   }
@@ -693,6 +1064,10 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     surface: 0,
     seabed: SEABED_DEPTH_M,
     span: SEABED_DEPTH_M,
+    // v3.5, additive — the gauge may want to engrave the shelf on the scale.
+    shelf: SHELF_DEPTH_M,
+    shelfTop: SHELF_TOP_M,
+    shelfBase: SHELF_BASE_M,
   };
   function range() {
     rangeOut.min = minM;
@@ -713,6 +1088,8 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     light: 1,
     seabedVisible: false,
     surfaceVisible: false,
+    shelfVisible: false,
+    shelfExposure: 0,
   };
   function info() {
     infoOut.depth = curM;
@@ -724,6 +1101,8 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     infoOut.light = lightAt(curM);
     infoOut.seabedVisible = seabed ? seabed.points.visible : false;
     infoOut.surfaceVisible = surface ? surface.points.visible : false;
+    infoOut.shelfVisible = shelf ? shelf.points.visible : false;
+    infoOut.shelfExposure = shelf ? shelfExposure(curM) : 0;
     return infoOut; // shared object — read, don't retain
   }
 
@@ -759,7 +1138,6 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     metresToWorldY,
     clampDepth,
     clampWorldY,
-    seabedYAt,
     zoneAt,
     lightAt,
     METRES_PER_PX,
@@ -770,18 +1148,50 @@ export function createColumn(scene, globalUniforms, opts = {}) {
     COLUMN_PX,
     ZONES,
 
+    // ---- the ground (v3.5) ----------------------------------------------
+    // seabedYAt(x, z) is EXACTLY the v3.4 function — the abyssal plain. Pass a
+    // third argument (metres below the surface) and it answers with whichever
+    // substrate is actually there: the reef bench near the light, the plain
+    // below it. depthbands.js adopts `seabedYAt` through setDepthUnits(), so
+    // that adapter keeps working untouched and gains the shelf the moment it
+    // starts forwarding a depth.
+    seabedYAt,
+    substrateAt, // (x, z, nearDepthM?, out?) -> { kind, y, depthM, coverage, shelf }
+    substrateYAt, // (x, z, nearDepthM?) -> world Y
+    abyssalYAt, // (x, z) -> the deep plain, unconditionally
+    shelfYAt, // (x, z) -> the reef bench surface
+    shelfCoverAt, // (x, z) -> 1 on the bench, 0 past the drop-off
+    hasShelfAt, // (x, z, nearDepthM?, minCover?) -> bool
+    SUBSTRATE_SHELF,
+    SUBSTRATE_PLAIN,
+    SHELF_Y,
+    SHELF_DEPTH_M,
+    SHELF_TOP_M,
+    SHELF_BASE_M,
+    SHELF_REACH_M,
+    SHELF_TOE_Z,
+    RIDGE_AMP,
+    SHELF_AMP,
+
     // ---- culling ---------------------------------------------------------
     visibleBand, // visibleBand(cssH?) -> shared band object
     viewHalfPx, // viewHalfPx(z) -> frustum half-height in world px at that z
     inView, // inView(y, z?, radiusPx?, marginPx?) -> bool
     outOfBandPx, // outOfBandPx(y, z?, radiusPx?) -> px outside the band (0 = in)
 
-    // ---- the two boundary layers ----------------------------------------
+    // ---- the scene layers -------------------------------------------------
     seabed, // { points, setIntensity, getIntensity, ... } or null
+    shelf, // the reef bench — its intensity is depth-driven, see setIntensity
     surface,
     setIntensity(v) {
       if (seabed) seabed.setIntensity(v);
       if (surface) surface.setIntensity(v);
+      // The shelf's uniform is written every frame from depth, so a caller sets
+      // the BASE it is multiplied by; passing 0 still switches it off.
+      if (shelf) {
+        shelfBase = Math.min(Math.max(v, 0), 1);
+        shelfApplied = -1;
+      }
     },
 
     info, // shared telemetry object
@@ -791,6 +1201,7 @@ export function createColumn(scene, globalUniforms, opts = {}) {
       if (navOn && keyTarget) keyTarget.removeEventListener('keydown', onKey);
       depthListeners.length = 0;
       if (seabed) seabed.dispose();
+      if (shelf) shelf.dispose();
       if (surface) surface.dispose();
     },
   };

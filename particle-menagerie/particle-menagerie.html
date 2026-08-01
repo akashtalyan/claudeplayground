@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Particle Menagerie — Deep Sea Garden</title>
+<style>
+  html,body{margin:0;height:100%;background:#04060a;overflow:hidden;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+  #c{display:block;position:fixed;inset:0}
+  #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.6) 100%)}
+  #hint{position:fixed;top:18px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.28);font-size:11px;letter-spacing:.18em;pointer-events:none;transition:opacity 2s;white-space:nowrap}
+  #f{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);z-index:5}
+  #inp{background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.85);font:15px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-align:center;padding:8px 4px;width:300px;outline:none;transition:border-color .4s}
+  #inp:focus{border-bottom-color:rgba(140,220,255,.5)}
+  #inp::placeholder{color:rgba(255,255,255,.22)}
+  #label{position:fixed;color:rgba(255,255,255,.55);font-size:11px;letter-spacing:.22em;pointer-events:none;transform:translate(-50%,0);transition:opacity .3s;opacity:0;white-space:nowrap}
+  #count{position:fixed;bottom:12px;right:16px;color:rgba(255,255,255,.18);font-size:10px;letter-spacing:.15em;pointer-events:none}
+  .panel{position:fixed;background:rgba(8,12,20,.78);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:14px 16px;color:rgba(255,255,255,.6);font-size:10px;letter-spacing:.14em;backdrop-filter:blur(6px);z-index:10;user-select:none}
+  #panel{right:18px;bottom:70px;width:190px;display:none}
+  #gpanel{right:18px;top:16px;width:190px}
+  .prow{display:flex;align-items:center;justify-content:space-between;margin:9px 0}
+  .prow label{opacity:.75;text-transform:lowercase}
+  input[type=range]{width:108px;accent-color:#8fd8ff;height:2px;cursor:pointer}
+  #pname{color:rgba(180,230,255,.9);font-size:11px;letter-spacing:.24em;text-transform:lowercase;margin-bottom:4px}
+  #swatches{display:flex;gap:7px;margin:10px 0 4px;flex-wrap:wrap}
+  .sw{width:16px;height:16px;border-radius:50%;cursor:pointer;border:1px solid rgba(255,255,255,.25);transition:transform .15s}
+  .sw:hover{transform:scale(1.25)}
+  .btns{display:flex;gap:8px;margin-top:12px}
+  .btns button,.cbtn{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:rgba(255,255,255,.6);font:10px ui-monospace,monospace;letter-spacing:.12em;padding:6px 4px;border-radius:6px;cursor:pointer}
+  .btns button:hover,.cbtn:hover{background:rgba(140,220,255,.12);color:rgba(255,255,255,.9)}
+  #cursorRow{display:flex;gap:6px;margin-top:8px}
+  .cbtn.on{background:rgba(140,220,255,.18);color:#bfe9ff;border-color:rgba(140,220,255,.4)}
+  .ptitle{opacity:.4;text-transform:lowercase;margin-bottom:2px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="vignette"></div>
+<div id="hint">name a sea creature or flower &nbsp;·&nbsp; try “school of fish” or “red jellyfish” &nbsp;·&nbsp; click one to tune it</div>
+<form id="f" autocomplete="off"><input id="inp" placeholder="name a sea creature or flower" autocomplete="off" spellcheck="false" autofocus></form>
+<div id="label"></div>
+<div id="count"></div>
+
+<div class="panel" id="gpanel">
+  <div class="ptitle">water</div>
+  <div class="prow"><label>current</label><input type="range" id="gCurrent" min="-1.5" max="1.5" step="0.05" value="0.25"></div>
+  <div class="prow"><label>trails</label><input type="range" id="gTrails" min="0" max="1" step="0.05" value="0.35"></div>
+  <div class="ptitle" style="margin-top:10px">cursor</div>
+  <div id="cursorRow">
+    <div class="cbtn on" data-m="ripple">ripple</div>
+    <div class="cbtn" data-m="lure">lure</div>
+    <div class="cbtn" data-m="off">off</div>
+  </div>
+</div>
+
+<div class="panel" id="panel">
+  <div id="pname"></div>
+  <div id="swatches"></div>
+  <div class="prow"><label>tempo</label><input type="range" id="sTempo" min="0.25" max="2.5" step="0.05" value="1"></div>
+  <div class="prow"><label>sway</label><input type="range" id="sSway" min="0.2" max="2.4" step="0.05" value="1"></div>
+  <div class="prow"><label>size</label><input type="range" id="sSize" min="0.5" max="2" step="0.05" value="1"></div>
+  <div class="prow"><label>glow</label><input type="range" id="sGlow" min="0.2" max="1" step="0.05" value="1"></div>
+  <div class="btns"><button type="button" id="bRelease">release</button><button type="button" id="bClose">done</button></div>
+</div>
+
+<script>
+'use strict';
+/* ================= setup ================= */
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+const labelEl=document.getElementById('label'),countEl=document.getElementById('count'),hintEl=document.getElementById('hint');
+let W=0,H=0,DPR=1;
+function resize(){DPR=Math.min(2,window.devicePixelRatio||1);W=window.innerWidth;H=window.innerHeight;canvas.width=W*DPR;canvas.height=H*DPR;canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle='#04060a';ctx.fillRect(0,0,W,H);}
+window.addEventListener('resize',resize);resize();
+
+const G={current:0.25,trails:0.35,cursor:'ripple'};
+
+/* ================= rng ================= */
+function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* ================= lexicon ================= */
+const LEX={
+ medusa:['jellyfish','jelly','jellies','medusa','manowar','ghost','phantom','wraith','spirit'],
+ finned:['fish','shark','whale','dolphin','orca','tuna','salmon','koi','goldfish','narwhal','marlin','swordfish','anglerfish','angler','piranha','barracuda','clownfish','minnow','guppy','betta','cod','sardine','herring','mackerel','bass','trout','snapper','grouper','pufferfish','puffer'],
+ eel:['eel','moray','seasnake','serpent','snake','dragon','seadragon','oarfish','lamprey','ribbonfish','pipefish','seahorse','worm','leviathan'],
+ ray:['ray','manta','stingray','skate','turtle','flounder','halibut'],
+ octo:['octopus','kraken','squid','cuttlefish','nautilus'],
+ star:['starfish','star','seastar','urchin','crab','brittlestar','sanddollar'],
+ amorph:['plankton','krill','blob','amoeba','slime','ooze','spore','mist','cloud','algae','goo','shrimp'],
+ bloom:['flower','rose','tulip','lotus','daisy','lily','orchid','sunflower','poppy','hibiscus','blossom','sakura','peony','dahlia','anemone','coral','carnation','lavender','iris','jasmine','marigold'],
+ kelp:['kelp','seaweed','seagrass','grass','reed','vine','fern','willow']
+};
+const ARCH_NAMES=Object.keys(LEX);
+const SWIMMERS=['medusa','finned','eel','ray','octo','star','amorph'];
+const MODS={
+ giant:{scale:1.6},huge:{scale:1.7},big:{scale:1.4},mega:{scale:1.8},colossal:{scale:1.9},
+ baby:{scale:.55,freq:1.35},tiny:{scale:.5,freq:1.4},small:{scale:.7,freq:1.2},mini:{scale:.55,freq:1.35},
+ ghost:{ghost:1},ghostly:{ghost:1},phantom:{ghost:1},
+ fast:{freq:1.6,speed:1.6},quick:{freq:1.5,speed:1.5},slow:{freq:.6,speed:.6},sleepy:{freq:.5,speed:.5},lazy:{freq:.6,speed:.5}
+};
+const COLORS={red:5,crimson:0,orange:25,amber:38,gold:45,golden:45,yellow:55,green:130,emerald:145,teal:165,cyan:190,aqua:185,blue:215,azure:205,indigo:245,purple:270,violet:275,magenta:310,pink:330,rose_c:340,white:null,silver:null,pearl:null};
+const NUMS={two:2,three:3,four:4,five:5,six:6,'2':2,'3':3,'4':4,'5':5,'6':6,pair:2,couple:2,few:3,school:5,shoal:5,swarm:6,flock:5,bunch:4,trio:3};
+
+function resolveName(raw){
+ const name=raw.toLowerCase().trim().replace(/\s+/g,' ');
+ const words=name.split(' ');
+ let scale=1,freq=1,speed=1,ghost=false,arch=null,hue,hueSet=false,count=1;
+ const kept=[];
+ for(const w of words){
+  if(w==='of')continue;
+  if(NUMS[w]){count=Math.max(count,NUMS[w]);continue;}
+  const m=MODS[w];
+  if(m){if(m.scale)scale*=m.scale;if(m.freq)freq*=m.freq;if(m.speed)speed*=m.speed;if(m.ghost)ghost=true;}
+  if(w in COLORS&&!(LEX.bloom.includes(w))){hue=COLORS[w];hueSet=true;}
+  kept.push(w);
+  const ws=w.replace(/s$/,'');
+  for(const a of ARCH_NAMES){if(LEX[a].includes(w)||LEX[a].includes(ws))arch=a;}
+ }
+ const clean=kept.join(' ')||name;
+ const seed=hashStr(clean);
+ if(!arch)arch=SWIMMERS[seed%SWIMMERS.length]; // unknown names become sea creatures
+ return{name:clean,arch,seed,scale,freq,speed,ghost,hue:hueSet?hue:null,hueSet,count};
+}
+
+/* ================= archetypes =================
+ build(rn,P,dots) ; target(dot,P,t,ph,o) -> local x,y (+d depth 0..1)
+ oriented: local +x = forward. rooted: origin at seabed, -y = up.
+ P.amp = sway multiplier (user control). G.current affects flora.
+=============================================== */
+const TAU=Math.PI*2;
+function quant(v,n){return Math.floor(v*n)/n;}
+const ARCH={};
+
+ARCH.medusa={
+ n:1500,rad:s=>110*s,orient:false,
+ build(rn,P,dots){
+  P.B=(52+rn()*20)*P.scale;P.T=6+Math.floor(rn()*5);P.tlen=(110+rn()*70)*P.scale;
+  const rings=14+Math.floor(rn()*6);
+  const nb=Math.floor(this.n*0.55);
+  for(let i=0;i<nb;i++)dots.push({k:0,phi:0.18+quant(rn(),rings)*1.2,a:rn()*TAU});
+  for(let i=nb;i<this.n;i++)dots.push({k:1,ti:Math.floor(rn()*P.T),u:rn(),tl:0.65+rn()*0.55,j:rn()*TAU});
+ },
+ target(dt,P,t,ph,o){
+  const pulse=1+0.13*P.amp*Math.sin(t*P.freq*2.0+ph);
+  const B=P.B*pulse;
+  const squash=0.8-0.12*P.amp*Math.sin(t*P.freq*2.0+ph);
+  if(dt.k===0){
+   const sp=Math.sin(dt.phi),cp=Math.cos(dt.phi);
+   o.x=sp*B*Math.cos(dt.a);
+   o.y=-cp*B*squash+sp*B*0.32*Math.sin(dt.a);
+   o.d=(Math.sin(dt.a)+1)/2;
+  }else{
+   const at=dt.ti/P.T*TAU+ph;
+   const ax=Math.sin(1.3)*B*0.8*Math.cos(at);
+   const ay=-Math.cos(1.35)*B*squash+B*0.1;
+   const u=dt.u,len=P.tlen*dt.tl;
+   o.x=ax*(1-u*0.25)+Math.sin(t*P.freq*1.6-u*5+dt.ti*1.7)*15*P.scale*P.amp*u;
+   o.y=ay+u*len+Math.sin(dt.j+t)*1.5;
+   o.d=0.35+0.3*Math.sin(dt.j);
+  }
+ }
+};
+
+ARCH.finned={
+ n:1250,rad:s=>100*s,orient:true,
+ build(rn,P,dots){
+  const ribs=26+Math.floor(rn()*10);
+  P.L=(150+rn()*50)*P.scale;P.R=(26+rn()*12)*P.scale;
+  const nb=Math.floor(this.n*0.72),nt=Math.floor(this.n*0.16);
+  for(let i=0;i<nb;i++)dots.push({k:0,s:quant(rn(),ribs),a:rn()*TAU});
+  for(let i=0;i<nt;i++)dots.push({k:1,u:rn(),v:rn()*2-1});
+  for(let i=nb+nt;i<this.n;i++)dots.push({k:2,side:rn()<.5?-1:1,u:rn(),v:rn()});
+ },
+ target(dt,P,t,ph,o){
+  const L=P.L,beat=t*P.freq*3+ph;
+  if(dt.k===0){
+   const s=dt.s;
+   const sx=(0.5-s)*L;
+   const sy=9*P.scale*P.amp*Math.sin(s*4-beat)*s;
+   const r=P.R*Math.pow(Math.sin(Math.PI*Math.min(1,s*1.04+0.02)),0.8);
+   const ca=Math.cos(dt.a),sa=Math.sin(dt.a);
+   o.x=sx+sa*r*0.3;o.y=sy+ca*r*0.9;o.d=(sa+1)/2;
+  }else if(dt.k===1){
+   const ta=Math.sin(beat)*0.55*P.amp;
+   const u=dt.u;
+   const bx=-L*0.5,by=9*P.scale*P.amp*Math.sin(4-beat);
+   const dx=-Math.cos(ta),dy=Math.sin(ta);
+   const len=42*P.scale*u,spread=dt.v*26*P.scale*u;
+   o.x=bx+dx*len-dy*spread;o.y=by+dy*len+dx*spread;o.d=0.5;
+  }else{
+   const flap=Math.sin(beat*0.9+dt.side)*0.4*P.amp;
+   const u=dt.u;
+   o.x=L*0.14-u*24*P.scale+dt.v*8*P.scale;
+   o.y=P.R*0.55*dt.side+dt.side*u*20*P.scale*(1+flap);
+   o.d=0.4+0.3*u;
+  }
+ }
+};
+
+ARCH.eel={
+ n:1300,rad:s=>125*s,orient:true,
+ build(rn,P,dots){
+  const ribs=Math.floor(40+rn()*16);
+  P.waves=1.6+rn()*1.3;P.L=(230+rn()*80)*P.scale;P.A=(20+rn()*14)*P.scale;P.R=(13+rn()*8)*P.scale;
+  for(let i=0;i<this.n;i++)dots.push({s:quant(rn(),ribs)+rn()*0.004,a:rn()*TAU});
+ },
+ target(dt,P,t,ph,o){
+  const s=dt.s,L=P.L,w=P.waves;
+  const sx=(s-.5)*L;
+  const arg=s*w*TAU-t*P.freq*2.1+ph;
+  const A=P.A*P.amp;
+  const sy=A*Math.sin(arg);
+  const dy=A*Math.cos(arg)*w*TAU/L;
+  const inv=1/Math.hypot(1,dy);
+  const nx=-dy*inv,ny=inv;
+  let r=P.R*(0.15+0.85*Math.pow(Math.sin(Math.PI*Math.min(1,s*1.12)),0.75));
+  r*=1+0.4*Math.exp(-Math.pow((s-0.93)*9,2));
+  const ca=Math.cos(dt.a),sa=Math.sin(dt.a);
+  o.x=sx+nx*ca*r;o.y=sy+ny*ca*r+sa*r*0.3;o.d=(sa+1)/2;
+ }
+};
+
+ARCH.ray={
+ n:1350,rad:s=>115*s,orient:true,
+ build(rn,P,dots){
+  P.len=(120+rn()*40)*P.scale;P.span=(95+rn()*35)*P.scale;
+  const rows=16+Math.floor(rn()*8);
+  const nb=Math.floor(this.n*0.9);
+  for(let i=0;i<nb;i++)dots.push({k:0,u:quant(rn()*2-1,rows*2)+0.01,v:rn()});
+  for(let i=nb;i<this.n;i++)dots.push({k:1,u:rn()});
+ },
+ target(dt,P,t,ph,o){
+  if(dt.k===0){
+   const u=dt.u,v=dt.v;
+   const x=(0.55-v)*P.len;
+   const shape=Math.pow(Math.sin(Math.PI*Math.min(1,v*1.05+0.02)),0.65);
+   const lat=u*P.span*shape;
+   const au=Math.abs(u);
+   const flap=Math.sin(t*P.freq*2.1-au*2.4+v*1.2+ph)*Math.pow(au,1.25)*24*P.scale*P.amp;
+   o.x=x;
+   o.y=lat*0.45-flap;
+   o.d=(u+1)/2;
+  }else{
+   const u=dt.u;
+   o.x=-P.len*(0.48+u*0.5);
+   o.y=Math.sin(t*P.freq*2-u*5+ph)*5*u*P.amp;
+   o.d=0.45;
+  }
+ }
+};
+
+ARCH.octo={
+ n:1550,rad:s=>105*s,orient:false,
+ build(rn,P,dots){
+  P.B=(28+rn()*14)*P.scale;P.armLen=(85+rn()*40)*P.scale;
+  const rings=11+Math.floor(rn()*5);
+  const nb=Math.floor(this.n*0.34);
+  for(let i=0;i<nb;i++)dots.push({k:0,phi:0.1+quant(rn(),rings)*1.5,a:rn()*TAU});
+  const nodes=22+Math.floor(rn()*8);
+  for(let i=nb;i<this.n;i++)dots.push({k:1,arm:Math.floor(rn()*8),u:quant(rn(),nodes)+0.02,a:rn()*TAU});
+ },
+ target(dt,P,t,ph,o){
+  const B=P.B*(1+0.08*P.amp*Math.sin(t*P.freq*1.6+ph));
+  if(dt.k===0){
+   const sp=Math.sin(dt.phi),cp=Math.cos(dt.phi);
+   o.x=sp*B*Math.cos(dt.a);
+   o.y=-cp*B*1.2+sp*B*0.3*Math.sin(dt.a)-B*0.35;
+   o.d=(Math.sin(dt.a)+1)/2;
+  }else{
+   const k=dt.arm,u=dt.u;
+   const th=Math.PI/2+(k/7-0.5)*1.9+Math.sin(t*P.freq*1.1+k*1.8+ph)*0.25*P.amp+u*u*0.8*Math.sin(t*0.5+k+ph);
+   const dist=u*P.armLen*(0.75+0.25*Math.sin(k*2.7));
+   const wave=Math.sin(t*P.freq*1.8-u*5+k)*13*P.scale*P.amp*u;
+   const rr=(5*P.scale)*(1-u*0.8);
+   const perp=wave+Math.cos(dt.a)*rr;
+   const ct=Math.cos(th),st=Math.sin(th);
+   o.x=ct*dist-st*perp;
+   o.y=st*dist*0.92+ct*perp+B*0.1;
+   o.d=(Math.sin(dt.a)+1)/2;
+  }
+ }
+};
+
+ARCH.star={
+ n:1400,rad:s=>105*s,orient:false,
+ build(rn,P,dots){
+  P.K=5+Math.floor(rn()*4);P.armLen=(70+rn()*32)*P.scale;P.rot=(rn()<.5?-1:1)*(0.12+rn()*0.2);
+  const nodes=22+Math.floor(rn()*10);
+  const nc=Math.floor(this.n*0.14);
+  for(let i=0;i<nc;i++)dots.push({k:0,a:rn()*TAU,r:Math.pow(rn(),0.6)});
+  for(let i=nc;i<this.n;i++)dots.push({k:1,arm:Math.floor(rn()*P.K),u:quant(rn(),nodes)+0.02,a:rn()*TAU});
+ },
+ target(dt,P,t,ph,o){
+  if(dt.k===0){
+   const r=15*P.scale*dt.r*(1+0.1*Math.sin(t*2+ph));
+   o.x=Math.cos(dt.a+t*0.3)*r;o.y=Math.sin(dt.a+t*0.3)*r*0.9;o.d=0.6;
+  }else{
+   const th=dt.arm/P.K*TAU+t*P.rot+ph;
+   const u=dt.u;
+   const und=Math.sin(u*5.5-t*P.freq*2.2+dt.arm*1.3)*13*P.scale*P.amp*u;
+   const rr=6.5*P.scale*(1-u*0.75);
+   const perp=und+Math.cos(dt.a)*rr;
+   const ct=Math.cos(th),st=Math.sin(th);
+   o.x=ct*u*P.armLen-st*perp;o.y=st*u*P.armLen+ct*perp;
+   o.d=(Math.sin(dt.a)+1)/2;
+  }
+ }
+};
+
+ARCH.amorph={
+ n:1500,rad:s=>85*s,orient:false,
+ build(rn,P,dots){
+  P.R0=(50+rn()*24)*P.scale;
+  for(let i=0;i<this.n;i++)dots.push({a:rn()*TAU,fr:Math.pow(rn(),0.5),ph2:rn()*TAU});
+ },
+ target(dt,P,t,ph,o){
+  const R=P.R0*(1+0.13*P.amp*Math.sin(t*P.freq*1.4+ph));
+  const wob=1+0.32*P.amp*Math.sin(dt.a*3+t*P.freq*1.9+dt.ph2);
+  const ang=dt.a+t*0.25*(1-dt.fr);
+  const rad=R*dt.fr*wob;
+  o.x=Math.cos(ang)*rad;o.y=Math.sin(ang)*rad*0.85;
+  o.d=0.3+0.5*Math.abs(Math.sin(dt.ph2+t*0.7));
+ }
+};
+
+/* --- rooted flora: origin at seabed, -y is up --- */
+ARCH.bloom={
+ n:1350,rad:s=>95*s,orient:false,rooted:true,
+ build(rn,P,dots){
+  P.stemH=(95+rn()*70)*P.scale;P.Pc=6+Math.floor(rn()*7);P.plen=(30+rn()*20)*P.scale;
+  if(P.thin){P.Pc=14+Math.floor(rn()*10);}
+  const ns=Math.floor(this.n*0.16),ncr=Math.floor(this.n*0.12);
+  for(let i=0;i<ns;i++)dots.push({k:0,u:rn(),a:rn()*TAU});
+  for(let i=0;i<ncr;i++)dots.push({k:1,a:rn()*TAU,r:Math.pow(rn(),0.5)});
+  for(let i=ns+ncr;i<this.n;i++)dots.push({k:2,p:Math.floor(rn()*P.Pc),u:rn(),v:rn()});
+ },
+ target(dt,P,t,ph,o){
+  const sway=Math.sin(t*P.freq*0.7+ph)*10*P.amp+G.current*14;
+  const hx=sway*1.15,hy=-P.stemH;
+  if(dt.k===0){
+   const u=dt.u;
+   o.x=sway*1.15*u*u+Math.cos(dt.a)*2.4;
+   o.y=-u*P.stemH+Math.sin(dt.a)*1.4;
+   o.d=0.35+0.3*u;
+  }else if(dt.k===1){
+   const r=(P.thin?5:7)*P.scale*dt.r;
+   o.x=hx+Math.cos(dt.a)*r;o.y=hy+Math.sin(dt.a)*r*0.8;o.d=0.85;
+  }else{
+   const thin=P.thin;
+   const th=dt.p/P.Pc*TAU+Math.sin(t*P.freq*0.5+ph)*0.1;
+   const open=thin?1:(0.62+0.32*Math.sin(t*P.freq*0.45+ph));
+   const len=P.plen*(thin?1.8:1)*open;
+   const u=dt.u;
+   const wob=thin?Math.sin(t*P.freq*1.4-u*4+dt.p)*7*P.amp*u:0;
+   const wid=Math.sin(Math.PI*u)*P.plen*(thin?0.1:0.34)*(dt.v-0.5);
+   const dist=u*len;
+   const ct=Math.cos(th),st=Math.sin(th);
+   o.x=hx+ct*dist-st*(wid+wob);
+   o.y=hy+st*dist*0.82+ct*(wid+wob)*0.8;
+   o.d=0.3+0.6*u;
+  }
+ }
+};
+
+ARCH.kelp={
+ n:1250,rad:s=>90*s,orient:false,rooted:true,
+ build(rn,P,dots){
+  P.K=3+Math.floor(rn()*4);P.hgt=(160+rn()*120)*P.scale;P.spread=(20+rn()*16)*P.scale;
+  const nodes=28+Math.floor(rn()*10);
+  for(let i=0;i<this.n;i++)dots.push({st:Math.floor(rn()*P.K),u:quant(rn(),nodes)+0.02,a:rn()*TAU,lf:rn(),hm:0.75+rn()*0.5});
+ },
+ target(dt,P,t,ph,o){
+  const u=dt.u,st=dt.st;
+  const bx=(st-(P.K-1)/2)*P.spread;
+  const swayAmp=(15*P.amp+Math.abs(G.current)*12)*u;
+  const x=bx+Math.sin(t*P.freq*0.85-u*2.6+st*1.4+ph)*swayAmp+G.current*22*u;
+  const leaf=dt.lf<0.3?Math.sin(u*47+st*3)*9*P.scale:0;
+  o.x=x+leaf+Math.cos(dt.a)*2.2;
+  o.y=-u*P.hgt*dt.hm+Math.sin(dt.a)*1.4;
+  o.d=0.25+0.65*u;
+ }
+};
+
+/* ================= creature ================= */
+const MAXC=14;
+let creatures=[];
+const _o={x:0,y:0,d:0};
+let mx=-9999,my=-9999;
+
+class Creature{
+ constructor(spec,px,py,inst,dotScale){
+  this.name=spec.name;this.spec=spec;this.inst=inst||0;
+  const rn=mulberry32(spec.seed);
+  this.arch=ARCH[spec.arch];
+  this.rooted=!!this.arch.rooted;
+  this.phase=rn()*TAU+this.inst*0.9;
+  const P={scale:spec.scale*(0.85+rn()*0.35)*(dotScale<1?0.8:1),amp:1};
+  if(spec.arch==='bloom')P.thin=/anemone|coral/.test(spec.name);
+  this.P=P;
+  this.baseScale=P.scale;
+  this.baseFreq=P.freq=spec.freq*(0.8+rn()*0.5);
+  this.baseSpeed=this.rooted?0:spec.speed*(7+rn()*9)*({finned:1.7,eel:1.4,ray:1.5}[spec.arch]||1);
+  this.speed=this.baseSpeed;
+  this.rad=this.arch.rad(P.scale);
+  this.dots=[];
+  const saveN=this.arch.n;
+  if(dotScale<1)this.arch.n=Math.floor(saveN*dotScale);
+  this.arch.build(rn,P,this.dots);
+  this.arch.n=saveN;
+  for(const d of this.dots){
+   d.x=px+(Math.random()-0.5)*520;
+   d.y=(this.rooted?H*0.6:py)+(Math.random()-0.5)*420;
+   d.ease=0.05+Math.random()*0.07;
+   d.tw=Math.random()*TAU;
+   d.sz=0.9+Math.random()*1.1;
+  }
+  this.x=px;this.y=this.rooted?H:py;
+  this.heading=Math.random()*TAU;
+  this.wph1=Math.random()*TAU;this.wph2=Math.random()*TAU;
+  this.alpha=0;this.state='alive';
+  this.glowMul=1;
+  this.baseAlpha=spec.ghost?0.42:0.9;
+  this.hue=spec.hueSet?spec.hue:null;
+  this.color=this.hue==null?'#ffffff':`hsl(${this.hue} 78% 66%)`;
+ }
+ setHue(h){this.hue=h;this.color=h==null?'#ffffff':`hsl(${h} 78% 66%)`;}
+ setTempo(v){this.P.freq=this.baseFreq*v;this.speed=this.baseSpeed*v;}
+ setSway(v){this.P.amp=v;}
+ setSize(v){this.P.scale=this.baseScale*v;this.rad=this.arch.rad(this.P.scale);}
+ setGlow(v){this.glowMul=v;}
+ cy(){return this.rooted?H-this.rad*0.9:this.y;}
+ disperse(){
+  this.state='dying';
+  for(const d of this.dots){const a=Math.random()*TAU;d.dx=Math.cos(a);d.dy=Math.sin(a)-0.3;}
+ }
+ update(dt,t){
+  if(this.state==='dying'){
+   this.alpha-=dt*0.9;
+   for(const d of this.dots){d.x+=d.dx*90*dt;d.y+=d.dy*90*dt;}
+   return this.alpha>0.02;
+  }
+  this.alpha=Math.min(this.baseAlpha*this.glowMul,this.alpha+dt*0.7);
+  if(!this.rooted){
+   this.heading+=(Math.sin(t*0.31+this.wph1)*0.5+Math.sin(t*0.13+this.wph2)*0.35)*dt;
+   if(G.cursor==='lure'&&mx>0){
+    const dc=Math.hypot(mx-this.x,my-this.y);
+    if(dc<430&&dc>40){
+     const ta=Math.atan2(my-this.y,mx-this.x);
+     let diff=ta-this.heading;
+     while(diff>Math.PI)diff-=TAU;while(diff<-Math.PI)diff+=TAU;
+     this.heading+=diff*1.2*dt;
+    }
+   }
+   const m=140;
+   if(this.x<m||this.x>W-m||this.y<m||this.y>H-m){
+    const ta=Math.atan2(H/2-this.y,W/2-this.x);
+    let diff=ta-this.heading;
+    while(diff>Math.PI)diff-=TAU;while(diff<-Math.PI)diff+=TAU;
+    this.heading+=diff*1.4*dt;
+   }
+   this.x+=Math.cos(this.heading)*this.speed*dt+G.current*16*dt;
+   this.y+=Math.sin(this.heading)*this.speed*dt;
+   if(this.x<-160)this.x=W+150;if(this.x>W+160)this.x=-150;
+  }else{
+   this.y=H;
+   this.x=Math.max(50,Math.min(W-50,this.x));
+  }
+  const or=this.arch.orient;
+  const ch=Math.cos(this.heading),sh=Math.sin(this.heading);
+  const P=this.P,ph=this.phase,A=this.arch;
+  const rippling=G.cursor==='ripple'&&mx>0;
+  const RR=110,RR2=RR*RR;
+  for(const d of this.dots){
+   A.target(d,P,t,ph,_o);
+   let tx,ty;
+   if(or===true){tx=_o.x*ch-_o.y*sh;ty=_o.x*sh+_o.y*ch;}
+   else{tx=_o.x;ty=_o.y;}
+   tx+=this.x;ty+=this.y;
+   d.x+=(tx-d.x)*d.ease;
+   d.y+=(ty-d.y)*d.ease;
+   if(rippling){
+    const rdx=d.x-mx,rdy=d.y-my;
+    const r2=rdx*rdx+rdy*rdy;
+    if(r2<RR2&&r2>0.01){
+     const r=Math.sqrt(r2);
+     const f=(1-r/RR);
+     const push=f*f*150*dt;
+     d.x+=rdx/r*push;d.y+=rdy/r*push;
+    }
+   }
+   d.d=_o.d;
+  }
+  return true;
+ }
+ draw(t){
+  const ga=this.alpha;
+  ctx.fillStyle=this.color;
+  for(const d of this.dots){
+   const tw=0.75+0.25*Math.sin(t*2.4+d.tw);
+   ctx.globalAlpha=ga*(0.3+0.7*d.d)*tw;
+   const s=d.sz*(0.6+0.6*d.d);
+   ctx.fillRect(d.x,d.y,s,s);
+  }
+ }
+}
+
+/* ================= plankton ambience ================= */
+const plankton=[];
+for(let i=0;i<130;i++)plankton.push({x:Math.random()*2000,y:Math.random()*1400,z:0.3+Math.random()*0.7,ph:Math.random()*TAU});
+function drawPlankton(dt,t){
+ ctx.fillStyle='#cfe8ff';
+ for(const p of plankton){
+  p.x+=(G.current*14+3)*p.z*dt;
+  p.y+=Math.sin(t*0.4+p.ph)*3*dt;
+  if(p.x>W+10)p.x=-10;if(p.x<-10)p.x=W+10;
+  if(p.y>H)p.y=0;if(p.y<0)p.y=H;
+  ctx.globalAlpha=0.05+0.08*p.z*(0.6+0.4*Math.sin(t+p.ph));
+  ctx.fillRect(p.x,p.y,p.z*1.4,p.z*1.4);
+ }
+}
+
+/* ================= spawn / select ================= */
+let sel=null;
+function spawn(raw){
+ const spec=resolveName(raw);
+ if(!spec.name)return;
+ const room=MAXC-creatures.filter(c=>c.state==='alive').length;
+ const n=Math.min(spec.count,Math.max(1,room),6);
+ for(let k=creatures.filter(c=>c.state==='alive').length+n-MAXC;k>0;k--){
+  const oldest=creatures.find(c=>c.state==='alive');
+  if(oldest)oldest.disperse();
+ }
+ const dotScale=n>1?0.55:1;
+ for(let i=0;i<n;i++){
+  const margin=170;
+  const px=margin+Math.random()*(W-margin*2);
+  const py=spec.arch==='bloom'||spec.arch==='kelp'?H:margin+Math.random()*(H-margin*2);
+  creatures.push(new Creature(spec,px,py,i,dotScale));
+ }
+ saveHash();hintEl.style.opacity=0;
+}
+function saveHash(){
+ const names=creatures.filter(c=>c.state==='alive'&&c.inst===0).map(c=>c.spec.count>1?c.spec.count+' '+c.name:c.name);
+ history.replaceState(null,'','#'+encodeURIComponent([...new Set(names)].join(',')));
+}
+function hitTest(x,y){
+ let best=null,bd=1e9;
+ for(const c of creatures){
+  if(c.state!=='alive')continue;
+  const d=Math.hypot(c.x-x,c.cy()-y);
+  if(d<Math.max(70,c.rad)&&d<bd){bd=d;best=c;}
+ }
+ return best;
+}
+
+/* ================= UI wiring ================= */
+const inp=document.getElementById('inp');
+const panel=document.getElementById('panel'),pname=document.getElementById('pname');
+const sTempo=document.getElementById('sTempo'),sSway=document.getElementById('sSway'),sSize=document.getElementById('sSize'),sGlow=document.getElementById('sGlow');
+document.getElementById('f').addEventListener('submit',e=>{e.preventDefault();if(inp.value.trim()){spawn(inp.value);inp.value='';}});
+document.addEventListener('keydown',e=>{if(document.activeElement!==inp&&e.key.length===1&&!e.metaKey&&!e.ctrlKey)inp.focus();});
+
+const SWATCH=[null,45,15,185,165,215,275,310,130];
+const swEl=document.getElementById('swatches');
+SWATCH.forEach(h=>{
+ const d=document.createElement('div');
+ d.className='sw';
+ d.style.background=h==null?'#fff':`hsl(${h} 78% 62%)`;
+ d.onclick=()=>{if(sel)sel.setHue(h);};
+ swEl.appendChild(d);
+});
+function selectCreature(c){
+ sel=c;
+ if(!c){panel.style.display='none';return;}
+ pname.textContent=c.name;
+ sTempo.value=c.P.freq/c.baseFreq;
+ sSway.value=c.P.amp;
+ sSize.value=c.P.scale/c.baseScale;
+ sGlow.value=c.glowMul;
+ panel.style.display='block';
+}
+sTempo.oninput=()=>sel&&sel.setTempo(+sTempo.value);
+sSway.oninput=()=>sel&&sel.setSway(+sSway.value);
+sSize.oninput=()=>sel&&sel.setSize(+sSize.value);
+sGlow.oninput=()=>sel&&sel.setGlow(+sGlow.value);
+document.getElementById('bRelease').onclick=()=>{if(sel){sel.disperse();selectCreature(null);setTimeout(saveHash,100);}};
+document.getElementById('bClose').onclick=()=>selectCreature(null);
+document.getElementById('gCurrent').oninput=e=>G.current=+e.target.value;
+document.getElementById('gTrails').oninput=e=>G.trails=+e.target.value;
+document.querySelectorAll('.cbtn').forEach(b=>{
+ b.onclick=()=>{G.cursor=b.dataset.m;document.querySelectorAll('.cbtn').forEach(x=>x.classList.toggle('on',x===b));};
+});
+canvas.addEventListener('click',e=>{
+ const c=hitTest(e.clientX,e.clientY);
+ selectCreature(c||null);
+});
+window.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;});
+window.addEventListener('mouseout',()=>{mx=-9999;my=-9999;});
+
+/* ================= main loop ================= */
+let last=0;
+function frame(now){
+ const t=now/1000;
+ const dt=Math.min(0.05,t-last||0.016);
+ last=t;
+ ctx.globalAlpha=1;
+ ctx.fillStyle=`rgba(4,6,10,${(0.65-0.55*G.trails).toFixed(3)})`;
+ ctx.fillRect(0,0,W,H);
+ drawPlankton(dt,t);
+ creatures=creatures.filter(c=>c.update(dt,t));
+ if(sel&&(sel.state!=='alive'))selectCreature(null);
+ // repulsion + same-species schooling (swimmers only)
+ const sw=creatures.filter(c=>!c.rooted&&c.state==='alive');
+ for(let i=0;i<sw.length;i++)for(let j=i+1;j<sw.length;j++){
+  const a=sw[i],b=sw[j];
+  const dx=b.x-a.x,dy=b.y-a.y;
+  const dist=Math.hypot(dx,dy)||1;
+  const min=(a.rad+b.rad)*0.72;
+  const ux=dx/dist,uy=dy/dist;
+  if(dist<min){
+   const push=(min-dist)/min*22*dt;
+   a.x-=ux*push;a.y-=uy*push;b.x+=ux*push;b.y+=uy*push;
+  }else if(a.name===b.name&&dist<560){
+   const pull=7*dt;
+   a.x+=ux*pull;a.y+=uy*pull;b.x-=ux*pull;b.y-=uy*pull;
+  }
+ }
+ // rooted flora first (behind), then swimmers
+ for(const c of creatures)if(c.rooted)c.draw(t);
+ for(const c of creatures)if(!c.rooted)c.draw(t);
+ ctx.globalAlpha=1;
+ const h=(mx>0)?hitTest(mx,my):null;
+ const show=sel||h;
+ if(show){
+  labelEl.textContent=show.name;
+  labelEl.style.left=show.x+'px';
+  labelEl.style.top=(show.cy()-Math.max(60,show.rad)-18)+'px';
+  labelEl.style.opacity=1;
+  labelEl.style.color=show===sel?'rgba(180,230,255,.85)':'rgba(255,255,255,.5)';
+ }else labelEl.style.opacity=0;
+ const alive=creatures.filter(c=>c.state==='alive').length;
+ countEl.textContent=alive?alive+' / '+MAXC:'';
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ================= restore / demo ================= */
+const fromHash=decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
+if(fromHash.length){
+ fromHash.slice(0,MAXC).forEach((n,i)=>setTimeout(()=>spawn(n),i*400));
+}else{
+ setTimeout(()=>spawn('jellyfish'),600);
+ setTimeout(()=>spawn('kelp'),1300);
+ setTimeout(()=>spawn('anemone'),2000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,552 @@
+/* ==========================================================================
+   Bathyscaphe chrome — shared stylesheet (Phase D fidelity contract:
+   design/bathyscaphe/README.md). Loaded ONCE via <link> in index.html;
+   UI modules must NOT re-import it. All chrome is type + hairlines + CSS
+   gradients — no images, no icons.
+
+   This file owns: the design tokens (:root custom properties, consumed by
+   every UI module), the font-face imports (@fontsource, inlined by vite —
+   never a CDN), and the State A summon component (#summon).
+   ========================================================================== */
+
+/* Fonts (offline single-file build — vite inlines the woff2 as data URIs).
+   IBM Plex Mono 400: readouts, values, actions, input.
+   Spectral 500: creature names / labels (small-caps).
+   Spectral 400 italic: the preset word in the weather rotary. */
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/spectral/500.css';
+@import '@fontsource/spectral/400-italic.css';
+
+:root {
+  /* -- color ------------------------------------------------------------- */
+  --amber: #ffc37a; /* phosphor amber: needles, values, port light */
+  --amber-bright: #ffd9a8; /* headers, preset word */
+
+  /* warm white ramp — placeholder / actions / labels / body / hover */
+  --warm-30: rgba(255, 235, 214, 0.3);
+  --warm-40: rgba(255, 235, 214, 0.4);
+  --warm-50: rgba(255, 235, 214, 0.5);
+  --warm-60: rgba(255, 235, 214, 0.6);
+  --warm-85: rgba(255, 235, 214, 0.85);
+
+  /* brass hairlines — dividers / plate border / tracks / input underline */
+  --brass-14: rgba(255, 195, 122, 0.14);
+  --brass-18: rgba(255, 195, 122, 0.18);
+  --brass-20: rgba(255, 195, 122, 0.2);
+  --brass-28: rgba(255, 195, 122, 0.28);
+  --brass-30: rgba(255, 195, 122, 0.3); /* rotary tick ring */
+  --brass-50: rgba(255, 195, 122, 0.5); /* ping + sonar ring stroke */
+
+  /* panel glass */
+  --glass: rgba(10, 8, 4, 0.42);
+  --glass-blur: 8px;
+  --glass-border: 1px solid var(--brass-18);
+  --rotary-disc: rgba(6, 7, 9, 0.92);
+
+  /* glow shadows */
+  --glow-6: 0 0 6px rgba(255, 195, 122, 0.8);
+  --glow-7: 0 0 7px rgba(255, 195, 122, 0.8); /* gauge needles */
+  --glow-8: 0 0 8px rgba(255, 195, 122, 0.8); /* port light */
+
+  /* type */
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --font-serif: 'Spectral', Georgia, serif;
+
+  /* motion */
+  --surface-ms: 400ms; /* panel rise: blur 8px->0 + 6px upward drift */
+  --hover-ms: 180ms; /* text actions 40% -> 85% (spec: 150-200ms ease) */
+  --ping-s: 2.6s; /* port-light ping + sonar ring */
+}
+
+/* Shared text-action hover (re-form / release / more / rotary arrows):
+   warm white 40% -> 85%, 150-200ms ease. */
+.chrome-action {
+  color: var(--warm-40);
+  cursor: pointer;
+  transition: color var(--hover-ms) ease;
+}
+.chrome-action:hover {
+  color: var(--warm-85);
+}
+
+/* ==========================================================================
+   State A — summon row: port light + field, centered, 56px from bottom
+   ========================================================================== */
+#summon {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  z-index: 5;
+}
+
+/* Port light: 6px amber circle + glow */
+#summon .port-light {
+  position: relative;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: var(--glow-8);
+}
+
+/* Ping ring: 1px border, scale(.4) -> scale(2.8) fading over 2.6s, infinite */
+#summon .port-ping {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1px solid var(--brass-50);
+  animation: ping var(--ping-s) ease-out infinite;
+}
+@keyframes ping {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+/* Field: no box — 1px bottom hairline only */
+#summon-input {
+  width: 300px;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--brass-28);
+  padding: 0 0 10px;
+  outline: none;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-align: center;
+  color: var(--warm-85);
+  caret-color: var(--amber);
+}
+#summon-input::placeholder {
+  color: var(--warm-30);
+  opacity: 1;
+}
+
+/* Sonar ring (one-shot, spawned by summon.js on onSummon; width/height set
+   to 2x the new creature's sizePx; scale/opacity animated via WAAPI with the
+   ping's own timing: 2.6s ease-out, .8 -> 0) */
+#summon .sonar-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 1px solid var(--brass-50);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ==========================================================================
+   State B — gauge plate (markup built by src/ui/plate.js; this section owns
+   every plate rule). Fidelity: README State B + Interactions. Positioned by
+   plate.js via left/top (anchor-follow); surface/sink animate transform +
+   filter + opacity via WAAPI, so the two never fight.
+
+   v3.2 — the control FORM changed, the visual LANGUAGE did not. The numeric
+   needle sliders became named-intent rows: Spectral small-caps label, a
+   brass detent strip of notches, the same 2x10px amber gauge needle pointing
+   at the chosen notch, and an IBM Plex Mono WORD where the number used to be.
+   Same glass, same hairlines, same amber, same 400ms rise. The 'more ›'
+   drawer is gone (nothing obscure left to hide: iridescence and dot density
+   are off the surface, depth / doing / color are promoted inline), so
+   re-form and release sit alone under the divider.
+   ========================================================================== */
+#plate {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 6;
+  display: none;
+  box-sizing: content-box; /* 242px is the content width; + 20px side padding */
+  width: 242px;
+  padding: 16px 20px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border);
+  border-radius: 4px;
+  color: var(--warm-60);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  will-change: left, top, transform, filter, opacity;
+}
+#plate.surfaced {
+  display: block;
+}
+#plate.sinking {
+  pointer-events: none;
+}
+
+/* Header row: creature name + index tag, baseline-aligned */
+.plate-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+.plate-name {
+  font: 500 12px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--amber-bright);
+}
+.plate-tag {
+  font: 400 9px var(--font-mono);
+  color: rgba(255, 214, 168, 0.35); /* index-tag ink (README State B) */
+}
+
+/* ---- intent rows ---------------------------------------------------------
+   One row per axis: label | detent strip | word. Row rhythm stays the
+   design's 11px; the 242px content width divides as
+   44 label + 10 + 82 strip + 10 + 96 word. */
+.plate-intents {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+.plate-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 11px 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  outline: none;
+}
+
+/* Label: Spectral 500 small-caps — the design's label voice (the old numeric
+   rows borrowed mono; named intents read as words, so they get the serif). */
+.plate-label {
+  flex: none;
+  width: 44px;
+  white-space: nowrap;
+  font: 500 10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--warm-50);
+  transition: color var(--hover-ms) ease;
+}
+
+/* The whole row is the control: hover / focus lifts the label 50% -> 85%
+   warm white (README hover ramp, 150-200ms ease). */
+.plate-intent {
+  cursor: pointer;
+}
+.plate-intent:hover .plate-label,
+.plate-intent:focus-visible .plate-label {
+  color: var(--warm-85);
+}
+
+/* Detent strip: the old 1px brass track, now marked with one hairline notch
+   per named choice. Notches tile the strip as equal hit cells (flex: 1), so
+   every word is a comfortable click target and notch i sits at (i+.5)/n. */
+.plate-notches {
+  position: relative;
+  flex: 1;
+  min-width: 40px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+}
+.plate-notches::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--brass-14);
+}
+.plate-notch {
+  position: relative;
+  flex: 1;
+  height: 100%;
+}
+.plate-notch::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 5px;
+  transform: translate(-50%, -50%);
+  background: var(--brass-20);
+  transition: background var(--hover-ms) ease, height var(--hover-ms) ease;
+}
+.plate-notch:hover::before {
+  height: 7px;
+  background: var(--brass-50);
+}
+
+/* The gauge needle survives verbatim (2x10px amber bar + glow) — it just
+   points at a word now. Centered on its notch, so it may sit half a cell
+   outside the strip while the felt-detent spring overshoots. */
+.plate-needle {
+  position: absolute;
+  top: 50%;
+  margin-top: -5px;
+  width: 2px;
+  height: 10px;
+  transform: translateX(-50%);
+  background: var(--amber);
+  box-shadow: var(--glow-7);
+  pointer-events: none;
+}
+
+/* The readout: a word, not a number. IBM Plex Mono, amber phosphor, right
+   aligned — same ink and alignment the numeric value had. 96px fits the
+   longest intent ('following you') at 10px +.1em. */
+.plate-value {
+  flex: none;
+  width: 96px;
+  text-align: right;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--amber);
+}
+
+/* Divider between the intent rows and the actions row */
+.plate-divider {
+  height: 1px;
+  background: var(--brass-14);
+  margin: 13px 0;
+}
+
+/* Actions: re-form / release (hover via shared .chrome-action) */
+.plate-actions {
+  display: flex;
+  gap: 14px;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+}
+
+/* Color: compact swatch row (v2 palette; null = monochrome default). Promoted
+   inline with the intents — a hue is visual, never a number. */
+.plate-colors {
+  cursor: default;
+}
+.plate-swatches {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+}
+.plate-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 235, 214, 0.25);
+  cursor: pointer;
+  transition: transform var(--hover-ms) ease;
+}
+.plate-swatch:hover {
+  transform: scale(1.25);
+}
+.plate-swatch.current {
+  border-color: var(--amber);
+  box-shadow: var(--glow-6);
+}
+
+/* ==========================================================================
+   State A — weather rotary (markup built by src/ui/rotary.js; this section
+   owns every rotary rule). Fidelity: README State A — bottom-right ~20px
+   inset, ~40px tick ring at rest, growing to 92px with the ‹ › affordances
+   when hovered; ticks are the plate rotary's repeating-conic idiom.
+   ========================================================================== */
+#rotary {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 5;
+}
+.rotary-dial {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  outline: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  /* growth is width/height (not scale) so the 1.6deg ticks stay hairline */
+  transition: width 220ms ease, height 220ms ease;
+}
+#rotary.open .rotary-dial {
+  width: 92px;
+  height: 92px;
+}
+.rotary-ticks {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-conic-gradient(
+    var(--brass-30) 0deg 1.6deg,
+    transparent 1.6deg 72deg
+  );
+  will-change: transform;
+}
+.rotary-disc {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--rotary-disc);
+}
+.rotary-word {
+  position: absolute;
+  inset: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font: italic 400 7px var(--font-serif); /* 7px on the 40px dial (mock) */
+  line-height: 1.25;
+  color: var(--amber-bright);
+  pointer-events: none;
+  transition: font-size 220ms ease;
+}
+#rotary.open .rotary-word {
+  font-size: 11px;
+}
+/* ‹ › affordances: rgba(255,235,214,.35) resting, .8 on hover (README) —
+   surfaced only while the dial is grown */
+.rotary-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  text-align: center;
+  font: 400 12px var(--font-mono);
+  color: rgba(255, 235, 214, 0.35);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: color var(--hover-ms) ease, opacity var(--hover-ms) ease;
+}
+.rotary-arrow:hover {
+  color: rgba(255, 235, 214, 0.8);
+}
+.rotary-prev {
+  left: -18px;
+}
+.rotary-next {
+  right: -18px;
+}
+#rotary.open .rotary-arrow {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ==========================================================================
+   In-scene hover labels (markup built by src/ui/labels.js). Fidelity:
+   README "In-world creature labels" — 10px mono, letter-spacing ~.35em,
+   low-opacity warm white, soft glow; labels.js follows the creature's
+   anchor per frame and scales opacity with its depth through the fog.
+   ========================================================================== */
+#labels {
+  position: fixed;
+  inset: 0;
+  z-index: 4; /* under the console chrome — it belongs to the water */
+  pointer-events: none;
+  transition: opacity 600ms ease;
+}
+.scene-label {
+  position: absolute;
+  transform: translateX(-50%);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.35em;
+  text-indent: 0.35em; /* re-center: the last glyph carries no letter-space */
+  white-space: nowrap;
+  color: var(--warm-50);
+  text-shadow: 0 0 10px rgba(255, 235, 214, 0.35);
+  opacity: 0;
+  will-change: left, top, opacity;
+}
+
+/* ==========================================================================
+   State C — ambient (driven by src/ui/ambient.js via body.ambient).
+   Sink = downward drift + fade, out of frame; return = State A, input
+   first: summon rises immediately, the rotary next, the plate last.
+   Transitions live on the DESTINATION state, so sink and rise pace
+   independently. Sunken chrome is pointer-transparent.
+   ========================================================================== */
+/* return (leaving ambient): staggered rise */
+#summon {
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    opacity 420ms ease;
+}
+#rotary {
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 140ms,
+    opacity 420ms ease 140ms;
+}
+#plate {
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 260ms,
+    opacity 420ms ease 260ms,
+    filter 420ms ease 260ms;
+}
+/* sink (entering ambient): slow settle downward while fading */
+body.ambient #summon,
+body.ambient #rotary,
+body.ambient #plate,
+body.ambient #labels {
+  pointer-events: none;
+}
+body.ambient #summon {
+  transform: translate(-50%, 110px);
+  opacity: 0;
+  transition:
+    transform 1200ms cubic-bezier(0.55, 0, 0.85, 0.45),
+    opacity 1000ms ease 150ms;
+}
+body.ambient #rotary {
+  transform: translateY(130px);
+  opacity: 0;
+  transition:
+    transform 1200ms cubic-bezier(0.55, 0, 0.85, 0.45) 80ms,
+    opacity 1000ms ease 220ms;
+}
+body.ambient #plate {
+  transform: translateY(64px);
+  opacity: 0;
+  filter: blur(6px);
+  transition:
+    transform 1200ms cubic-bezier(0.55, 0, 0.85, 0.45) 40ms,
+    opacity 900ms ease 160ms,
+    filter 900ms ease 160ms;
+}
+body.ambient #labels {
+  opacity: 0;
+}
+
+/* ==========================================================================
+   Boot gate (integrator) — chrome stays invisible until the engine has
+   rendered its first frame (main.js adds body.booted after frame 1). Also
+   keeps the static summon row hidden on the WebGL-required page, where
+   boot() never runs. visibility (not opacity) so no transition fires.
+   ========================================================================== */
+body:not(.booted) #summon,
+body:not(.booted) #rotary,
+body:not(.booted) #plate,
+body:not(.booted) #labels {
+  visibility: hidden;
+}

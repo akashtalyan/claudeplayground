@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics="">
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Mono:wght@400;700&amp;family=Spectral:ital,wght@0,400;0,500;1,400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#070a0f;font-family:system-ui,sans-serif;width:max-content;min-width:100%}
+.dv-turn{background:#070a0f}
+a{color:#8fd8ff;text-decoration:none}a:hover{color:#bfe6ff}
+@keyframes blink{0%,55%{opacity:1}56%,100%{opacity:0}}
+@keyframes ping{0%{transform:scale(.4);opacity:.8}100%{transform:scale(2.8);opacity:0}}
+.dv-turn{padding:40px 44px 36px;scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#dff1ff;color:#04060a;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#e8eef6}
+.dv-sub{font:11.5px/1.5 system-ui;color:rgba(232,238,246,.5);margin:0 0 24px;max-width:760px}
+.dv-opts{display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(255,255,255,.12);color:#e8eef6;border-radius:5px;text-decoration:none}
+.dv-oid:hover{color:#fff}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11.5px/1.3 system-ui;color:rgba(232,238,246,.6)}
+.dv-opt:target .dv-oid{background:#8fd8ff;color:#04060a}
+.dv-next{margin:26px 0 0;font:12px/1.5 system-ui;color:rgba(232,238,246,.5)}
+.chip{position:absolute;top:14px;right:16px;font:9px/1 ui-monospace,Menlo,monospace;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:4px 9px;z-index:5}
+.sp{width:1440px;box-sizing:border-box;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:18px 22px;display:grid;grid-template-columns:1.15fr 1.15fr 1fr 1fr;gap:24px}
+.sph{font:600 9.5px ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:rgba(232,238,246,.4);margin:0 0 8px}
+.sp ul{margin:0;padding:0 0 0 14px;font:11.5px/1.55 system-ui;color:rgba(235,240,248,.72)}
+.sp li{margin:0 0 5px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:6px;border:1px solid rgba(255,255,255,.15)}
+.tk{font:10.5px/1.9 ui-monospace,Menlo,monospace;color:rgba(235,240,248,.72)}
+.mcap{font:9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,238,246,.38);margin:0 0 6px}
+</style>
+</helmet>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Particle Menagerie — four UI directions</span></div>
+<p class="dv-sub">Each direction shows the richest state (creature selected) at full size, plus "at rest" and "ambient" minis. All chrome floats over the live scene; the dotted creatures behind the UI are animated stand-ins for the real WebGL layer.</p>
+<div class="dv-opts">
+
+<!-- ============ 1a SURFACE TENSION ============ -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>surface tension — invisible until summoned; the panel condenses out of the water beside the creature</div>
+<div style="position:relative;width:1440px;height:840px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:8px">
+  <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="jelly" cx="0.36" cy="0.46" scale="1.15" seed="2" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+  <span class="chip">state · creature selected</span>
+  <div style="position:absolute;left:518px;top:196px;transform:translateX(-50%);font:10px 'IBM Plex Mono',monospace;letter-spacing:.35em;color:rgba(190,225,255,.5);text-shadow:0 0 10px rgba(143,216,255,.4)">jellyfish</div>
+  <div style="position:absolute;left:790px;top:250px;width:232px;padding:18px 20px;background:rgba(5,9,15,.3);backdrop-filter:blur(8px);font:10.5px/1.5 'IBM Plex Mono',monospace;letter-spacing:.12em;color:rgba(255,255,255,.55)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px"><span style="color:rgba(255,255,255,.82)">jellyfish</span><span style="color:rgba(255,255,255,.25);font-size:9px">esc</span></div>
+    <div style="display:flex;gap:11px;margin-bottom:16px">
+      <span style="width:10px;height:10px;border-radius:50%;background:#dff1ff;outline:1px solid rgba(255,255,255,.55);outline-offset:3px"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#8fd8ff;opacity:.75"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#ffb3c7;opacity:.75"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#ffd9a0;opacity:.75"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#9ff0dd;opacity:.75"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#c9b3ff;opacity:.75"></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin:10px 0"><span style="width:42px">glow</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:62%;background:rgba(143,216,255,.4)"></div><div style="position:absolute;left:62%;top:-3px;margin-left:-3px;width:6px;height:6px;border-radius:50%;background:#8fd8ff;box-shadow:0 0 8px rgba(143,216,255,.7)"></div></div><span style="width:24px;text-align:right;color:#8fd8ff">62</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:10px 0"><span style="width:42px">tempo</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:40%;background:rgba(143,216,255,.4)"></div><div style="position:absolute;left:40%;top:-3px;margin-left:-3px;width:6px;height:6px;border-radius:50%;background:#8fd8ff;box-shadow:0 0 8px rgba(143,216,255,.7)"></div></div><span style="width:24px;text-align:right;color:#8fd8ff">40</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:10px 0"><span style="width:42px">sway</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:25%;background:rgba(143,216,255,.4)"></div><div style="position:absolute;left:25%;top:-3px;margin-left:-3px;width:6px;height:6px;border-radius:50%;background:#8fd8ff;box-shadow:0 0 8px rgba(143,216,255,.7)"></div></div><span style="width:24px;text-align:right;color:#8fd8ff">25</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:10px 0"><span style="width:42px">size</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:52%;background:rgba(143,216,255,.4)"></div><div style="position:absolute;left:52%;top:-3px;margin-left:-3px;width:6px;height:6px;border-radius:50%;background:#8fd8ff;box-shadow:0 0 8px rgba(143,216,255,.7)"></div></div><span style="width:24px;text-align:right;color:#8fd8ff">3.1</span></div>
+    <div style="height:1px;background:rgba(255,255,255,.08);margin:14px 0"></div>
+    <div style="display:flex;gap:14px;color:rgba(255,255,255,.4)"><span style-hover="color:rgba(255,255,255,.8);cursor:pointer">re-form</span><span style-hover="color:rgba(255,255,255,.8);cursor:pointer">release</span></div>
+    <div style="margin-top:10px;color:rgba(255,255,255,.28)" style-hover="color:rgba(255,255,255,.6);cursor:pointer">more ›</div>
+  </div>
+  <div style="position:absolute;left:50%;bottom:56px;transform:translateX(-50%);width:340px;text-align:center;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.28);padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.18)">name a creature</div>
+  <div style="position:absolute;right:24px;bottom:24px;font:10px 'IBM Plex Mono',monospace;letter-spacing:.15em;color:rgba(255,255,255,.25)">· 7</div>
+</div>
+<div style="display:flex;gap:16px;width:1440px;align-items:stretch">
+  <div style="display:flex;flex-direction:column;gap:12px;flex:none">
+    <div><p class="mcap">at rest</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="jelly" cx="0.42" cy="0.42" scale="0.55" seed="3" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+      <div style="position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:170px;text-align:center;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.28);padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.18)">name a creature</div>
+      <div style="position:absolute;right:14px;bottom:12px;font:9px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.25)">· 7</div>
+    </div></div>
+    <div><p class="mcap">ambient · 30s idle — nothing survives</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="jelly" cx="0.55" cy="0.48" scale="0.55" seed="4" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+    </div></div>
+  </div>
+  <div class="sp" style="width:auto;flex:1;grid-template-columns:1fr 1fr;align-content:start">
+    <div><p class="sph">interaction model</p><ul>
+      <li>At rest: the underlined summon field and the tiny count. That is the entire product.</li>
+      <li>On click-select: the panel condenses beside the creature; its name surfaces in-world above it. No dock, no fixed edge — the UI lives where the creature is.</li>
+      <li>Scene controls: press-and-hold on empty water opens the same style of panel for light, fog, weather. Presets are the first row of that panel.</li>
+      <li>Ambient: everything dissolves; any keystroke re-condenses the input first, panels only if a creature was selected.</li>
+    </ul></div>
+    <div><p class="sph">micro-interactions</p><ul>
+      <li>Panel entry: hairlines and text assemble from drifting dots (~120ms gather) — no slide, no scale. Exit is the reverse.</li>
+      <li>Slider handle is a glowing dot that leaves a 300ms fading trail as it moves; value counts up in accent.</li>
+      <li>Enter: the underline ripples once outward from center; the typed word breaks into dots that swim to the formation point.</li>
+    </ul></div>
+    <div><p class="sph">type + color</p><div class="tk">
+      IBM Plex Mono · 10.5/16 · ls .12em · lowercase<br>
+      <span class="sw" style="background:#04060a"></span>#04060a scene<br>
+      <span class="sw" style="background:rgba(255,255,255,.28)"></span>white 28% quiet · 55% base · 82% focus<br>
+      <span class="sw" style="background:#8fd8ff"></span>#8fd8ff accent — kept; reserved strictly for live values + handles<br>
+      <em style="font-family:system-ui;font-size:11px;color:rgba(235,240,248,.55)">Evolution, not replacement: the current voice already whispers. Discipline (accent = "this is live") is what changes.</em>
+    </div></div>
+    <div><p class="sph">what i would cut</p><ul>
+      <li>The global scene panel as visible chrome — hold-on-water replaces it entirely.</li>
+      <li>Snapshot / record / share collapse into one word, "capture", inside the hold panel.</li>
+      <li>All icons. Every affordance is a lowercase word.</li>
+    </ul></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1b INSTRUMENT RAIL ============ -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>instrument rail — a 48px hairline of lab equipment on the left edge; everything else stays water</div>
+<div style="position:relative;width:1440px;height:840px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:8px">
+  <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="eel" cx="0.62" cy="0.42" scale="1.1" seed="5" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+  <span class="chip">state · weather stop open · creature selected</span>
+  <div style="position:absolute;left:0;top:0;bottom:0;width:48px;border-right:1px solid rgba(255,255,255,.07);background:rgba(4,7,11,.4);backdrop-filter:blur(6px);display:flex;flex-direction:column;align-items:center;padding:22px 0;box-sizing:border-box;z-index:3">
+    <span style="font-size:13px;color:rgba(255,255,255,.32);margin-bottom:22px" style-hover="color:rgba(255,255,255,.7);cursor:pointer">◐</span>
+    <span style="font-size:13px;color:#7fe7d2;text-shadow:0 0 9px rgba(127,231,210,.6);margin-bottom:22px;cursor:pointer">≋</span>
+    <span style="font-size:13px;color:rgba(255,255,255,.32);margin-bottom:22px" style-hover="color:rgba(255,255,255,.7);cursor:pointer">⊙</span>
+    <span style="font-size:12px;color:rgba(255,255,255,.32)" style-hover="color:rgba(255,255,255,.7);cursor:pointer">⭘</span>
+    <span style="margin-top:auto;font:10px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)">07</span>
+    <span style="font:8px 'JetBrains Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.2);margin-top:4px">forms</span>
+  </div>
+  <div style="position:absolute;left:48px;top:0;bottom:0;width:212px;background:rgba(5,9,14,.55);backdrop-filter:blur(10px);border-right:1px solid rgba(255,255,255,.06);padding:26px 20px;box-sizing:border-box;font:11px/1.5 'JetBrains Mono',monospace;color:rgba(255,255,255,.55);z-index:2">
+    <div style="font-size:9.5px;letter-spacing:.25em;color:rgba(255,255,255,.35);margin-bottom:18px">WEATHER</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0" style-hover="color:rgba(255,255,255,.85);cursor:pointer"><span>moonlit</span><span style="display:flex;gap:4px"><i style="width:5px;height:5px;border-radius:50%;background:#dfe9f5;opacity:.8"></i><i style="width:5px;height:5px;border-radius:50%;background:#9fb8d8;opacity:.6"></i><i style="width:5px;height:5px;border-radius:50%;background:#5b7391;opacity:.5"></i></span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;color:#7fe7d2"><span style="border-left:2px solid #7fe7d2;margin-left:-10px;padding-left:8px">abyss</span><span style="display:flex;gap:4px"><i style="width:5px;height:5px;border-radius:50%;background:#7fe7d2"></i><i style="width:5px;height:5px;border-radius:50%;background:#3b6d78"></i><i style="width:5px;height:5px;border-radius:50%;background:#12212b"></i></span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0" style-hover="color:rgba(255,255,255,.85);cursor:pointer"><span>biolum. bay</span><span style="display:flex;gap:4px"><i style="width:5px;height:5px;border-radius:50%;background:#8ff5c8;opacity:.8"></i><i style="width:5px;height:5px;border-radius:50%;background:#57c9e8;opacity:.7"></i><i style="width:5px;height:5px;border-radius:50%;background:#1a3a4a;opacity:.6"></i></span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0" style-hover="color:rgba(255,255,255,.85);cursor:pointer"><span>ink</span><span style="display:flex;gap:4px"><i style="width:5px;height:5px;border-radius:50%;background:#c8ccd6;opacity:.5"></i><i style="width:5px;height:5px;border-radius:50%;background:#3a3f4d;opacity:.7"></i><i style="width:5px;height:5px;border-radius:50%;background:#0a0c12"></i></span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0" style-hover="color:rgba(255,255,255,.85);cursor:pointer"><span>shallows</span><span style="display:flex;gap:4px"><i style="width:5px;height:5px;border-radius:50%;background:#bfefff;opacity:.9"></i><i style="width:5px;height:5px;border-radius:50%;background:#7fc8dd;opacity:.7"></i><i style="width:5px;height:5px;border-radius:50%;background:#2c5a68;opacity:.6"></i></span></div>
+    <div style="height:1px;background:rgba(255,255,255,.08);margin:20px 0 16px"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:12px 0;font-size:10px"><span style="width:48px">fog</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:32%;background:rgba(127,231,210,.45)"></div><div style="position:absolute;left:32%;top:-3.5px;width:1px;height:8px;background:#7fe7d2"></div></div><span style="width:30px;text-align:right;color:#7fe7d2">0.32</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:12px 0;font-size:10px"><span style="width:48px">current</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:14%;background:rgba(127,231,210,.45)"></div><div style="position:absolute;left:14%;top:-3.5px;width:1px;height:8px;background:#7fe7d2"></div></div><span style="width:30px;text-align:right;color:#7fe7d2">0.14</span></div>
+    <div style="margin-top:16px;font-size:9.5px;color:rgba(255,255,255,.25)" style-hover="color:rgba(255,255,255,.6);cursor:pointer">more ›</div>
+  </div>
+  <div style="position:absolute;left:940px;top:130px;width:232px;padding:16px 18px;background:rgba(5,9,14,.5);backdrop-filter:blur(9px);border:1px solid rgba(255,255,255,.08);border-radius:2px;font:10px/1.5 'JetBrains Mono',monospace;color:rgba(255,255,255,.55)">
+    <div style="display:flex;justify-content:space-between;margin-bottom:14px"><span style="color:rgba(255,255,255,.85);font-size:11px">red eel</span><span style="color:rgba(255,255,255,.3)">e·03</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px">glow</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:71%;background:rgba(127,231,210,.45)"></div><div style="position:absolute;left:71%;top:-3.5px;width:1px;height:8px;background:#7fe7d2"></div></div><span style="width:24px;text-align:right;color:#7fe7d2">71</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px">tempo</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:55%;background:rgba(127,231,210,.45)"></div><div style="position:absolute;left:55%;top:-3.5px;width:1px;height:8px;background:#7fe7d2"></div></div><span style="width:24px;text-align:right;color:#7fe7d2">55</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px">sway</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:38%;background:rgba(127,231,210,.45)"></div><div style="position:absolute;left:38%;top:-3.5px;width:1px;height:8px;background:#7fe7d2"></div></div><span style="width:24px;text-align:right;color:#7fe7d2">38</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px">size</span><div style="position:relative;flex:1;height:1px;background:rgba(255,255,255,.14)"><div style="position:absolute;left:0;top:0;height:1px;width:44%;background:rgba(127,231,210,.45)"></div><div style="position:absolute;left:44%;top:-3.5px;width:1px;height:8px;background:#7fe7d2"></div></div><span style="width:24px;text-align:right;color:#7fe7d2">2.6</span></div>
+    <div style="height:1px;background:rgba(255,255,255,.08);margin:13px 0"></div>
+    <div style="display:flex;gap:12px;color:rgba(255,255,255,.38);font-size:9.5px"><span style-hover="color:rgba(255,255,255,.8);cursor:pointer">re-form</span><span style-hover="color:rgba(255,255,255,.8);cursor:pointer">release</span><span style-hover="color:rgba(255,255,255,.8);cursor:pointer">lab ›</span></div>
+  </div>
+  <div style="position:absolute;left:50%;bottom:56px;transform:translateX(-50%);width:340px;text-align:center;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.28);padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.18)">name a creature</div>
+</div>
+<div style="display:flex;gap:16px;width:1440px;align-items:stretch">
+  <div style="display:flex;flex-direction:column;gap:12px;flex:none">
+    <div><p class="mcap">at rest — rail + input only</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="eel" cx="0.6" cy="0.45" scale="0.55" seed="6" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+      <div style="position:absolute;left:0;top:0;bottom:0;width:22px;border-right:1px solid rgba(255,255,255,.08);background:rgba(4,7,11,.4);display:flex;flex-direction:column;align-items:center;padding:10px 0;box-sizing:border-box"><span style="font-size:7px;color:rgba(255,255,255,.32);margin-bottom:9px">◐</span><span style="font-size:7px;color:rgba(255,255,255,.32);margin-bottom:9px">≋</span><span style="font-size:7px;color:rgba(255,255,255,.32);margin-bottom:9px">⊙</span><span style="font-size:7px;color:rgba(255,255,255,.32)">⭘</span><span style="margin-top:auto;font:6px 'JetBrains Mono',monospace;color:rgba(255,255,255,.4)">07</span></div>
+      <div style="position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:170px;text-align:center;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.28);padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.18)">name a creature</div>
+    </div></div>
+    <div><p class="mcap">ambient · rail slides off the edge</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="eel" cx="0.45" cy="0.5" scale="0.55" seed="7" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+      <div style="position:absolute;left:-20px;top:0;bottom:0;width:22px;border-right:1px solid rgba(255,255,255,.06);background:rgba(4,7,11,.3)"></div>
+    </div></div>
+  </div>
+  <div class="sp" style="width:auto;flex:1;grid-template-columns:1fr 1fr;align-content:start">
+    <div><p class="sph">interaction model</p><ul>
+      <li>At rest: a 48px hairline rail (scene light ◐, weather ≋, camera ⊙, capture ⭘, count) plus the input. Four glyphs is the whole surface.</li>
+      <li>Hover/click a stop: one flyout column slides from the rail. Only one flyout ever exists.</li>
+      <li>On select: a small instrument card docks near the creature, same styling as the rail. Presets read as choosing weather — word + three-dot forecast.</li>
+      <li>Ambient: the rail slides off the left edge; input fades; a lone hairline remains for 2s as a memory, then goes.</li>
+    </ul></div>
+    <div><p class="sph">micro-interactions</p><ul>
+      <li>Flyout slides 8px + fades in 240ms, cubic-bezier(.2,.8,.2,1); never bounces.</li>
+      <li>Sliders move in 1% detents; the numeric readout counts through intermediate values like a meter settling.</li>
+      <li>A hovered rail stop brightens slowly (≈2s ease) — the glow of a passing lure, not a button highlight.</li>
+    </ul></div>
+    <div><p class="sph">type + color</p><div class="tk">
+      JetBrains Mono · 10/11px · tabular numerals for every readout<br>
+      <span class="sw" style="background:rgba(255,255,255,.07)"></span>hairlines white 7%<br>
+      <span class="sw" style="background:#7fe7d2"></span>oklch(.88 .09 175) ≈ #7fe7d2 accent<br>
+      <em style="font-family:system-ui;font-size:11px;color:rgba(235,240,248,.55)">Why replace #8fd8ff: creatures glow ice-blue; shifting chrome to phosphor teal separates instrument from specimen, and reads "measurement".</em>
+    </div></div>
+    <div><p class="sph">what i would cut</p><ul>
+      <li>Hover name labels — the rail's count and the selection card carry identity.</li>
+      <li>Color swatches on the creature card; color belongs to weather and to typed words.</li>
+      <li>All per-creature advanced controls move behind "lab ›" — never inline.</li>
+    </ul></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1c BENTHOS ============ -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>benthos — a command line of the sea; one line of text is the entire interface</div>
+<div style="position:relative;width:1440px;height:840px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:8px">
+  <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="school" cx="0.5" cy="0.38" scale="1.35" seed="8" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+  <span class="chip">state · creature selected · scrubbing a value</span>
+  <div style="position:absolute;left:50%;bottom:118px;transform:translateX(-50%);white-space:nowrap;font:11.5px 'Space Mono',monospace;letter-spacing:.08em;color:rgba(255,255,255,.5)">
+    <span style="color:rgba(255,255,255,.9)">school of fish</span>
+    <span style="color:rgba(255,255,255,.22)">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+    glow <span style="color:rgba(255,255,255,.9);border-bottom:1px dotted rgba(255,255,255,.5);cursor:ew-resize">62</span>
+    <span style="color:rgba(255,255,255,.22)">&nbsp;&nbsp;</span>tempo <span style="color:rgba(255,255,255,.9)">40</span>
+    <span style="color:rgba(255,255,255,.22)">&nbsp;&nbsp;</span>sway <span style="color:rgba(255,255,255,.9)">25</span>
+    <span style="color:rgba(255,255,255,.22)">&nbsp;&nbsp;</span>size <span style="color:rgba(255,255,255,.9)">3</span>
+    <span style="color:rgba(255,255,255,.22)">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+    <span style="color:rgba(255,255,255,.4)" style-hover="color:rgba(255,255,255,.85);cursor:pointer">re-form</span><span style="color:rgba(255,255,255,.22)"> / </span><span style="color:rgba(255,255,255,.4)" style-hover="color:rgba(255,255,255,.85);cursor:pointer">release</span><span style="color:rgba(255,255,255,.22)"> / </span><span style="color:rgba(255,255,255,.4)" style-hover="color:rgba(255,255,255,.85);cursor:pointer">more</span>
+  </div>
+  <div style="position:absolute;left:50%;bottom:64px;transform:translateX(-50%);display:flex;align-items:center;font:12px 'Space Mono',monospace;letter-spacing:.08em;padding-bottom:11px;border-bottom:1px solid rgba(255,255,255,.16);min-width:430px;justify-content:center">
+    <span style="color:rgba(255,255,255,.85)">school of fish tempo&nbsp;</span><span style="color:rgba(255,255,255,.3)">55</span><span style="display:inline-block;width:7px;height:15px;background:rgba(223,241,255,.85);margin-left:3px;animation:blink 1.1s steps(1) infinite"></span>
+  </div>
+  <div style="position:absolute;right:26px;bottom:26px;font:10px 'Space Mono',monospace;color:rgba(255,255,255,.18)">/ for commands</div>
+</div>
+<div style="display:flex;gap:16px;width:1440px;align-items:stretch">
+  <div style="display:flex;flex-direction:column;gap:12px;flex:none">
+    <div><p class="mcap">at rest — one line, nothing else</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="school" cx="0.5" cy="0.42" scale="0.6" seed="9" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+      <div style="position:absolute;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;font:9.5px 'Space Mono',monospace;letter-spacing:.1em;padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.16);min-width:180px;justify-content:center"><span style="color:rgba(255,255,255,.28)">name a creature</span><span style="display:inline-block;width:5px;height:11px;background:rgba(223,241,255,.7);margin-left:3px;animation:blink 1.1s steps(1) infinite"></span></div>
+    </div></div>
+    <div><p class="mcap">ambient · only a breathing caret survives</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="school" cx="0.48" cy="0.46" scale="0.6" seed="10" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+      <span style="position:absolute;left:50%;bottom:31px;width:5px;height:11px;background:rgba(223,241,255,.35);animation:blink 2.4s steps(1) infinite"></span>
+    </div></div>
+  </div>
+  <div class="sp" style="width:auto;flex:1;grid-template-columns:1fr 1fr;align-content:start">
+    <div><p class="sph">interaction model</p><ul>
+      <li>Everything is language. "jellyfish" summons; "jellyfish glow 80", "weather moonlit", "release eel" adjust. Ghost autocomplete teaches the vocabulary as you type.</li>
+      <li>On select: one row of scrubbable word-values appears above the line — drag a number sideways to change it. No panel exists anywhere.</li>
+      <li>Presets are just words: "weather abyss". "who" lists the menagerie; "capture" saves a frame.</li>
+      <li>Ambient: even the line goes; a caret breathes at 2.4s — the only proof the water is listening.</li>
+    </ul></div>
+    <div><p class="sph">micro-interactions</p><ul>
+      <li>Enter: the typed word itself breaks into dots and swims to the formation point — the text becomes the creature.</li>
+      <li>Scrubbing a number emits a faint tick-dot per unit; release lets the value ease to rest.</li>
+      <li>Ghost completion sits after the caret at 30% white; Tab accepts it silently.</li>
+    </ul></div>
+    <div><p class="sph">type + color</p><div class="tk">
+      Space Mono only · 12px · ls .08em · one size, one face<br>
+      <span class="sw" style="background:rgba(255,255,255,.22)"></span>white 22% ghost · 50% ambient · 90% live<br>
+      <span class="sw" style="background:#dff1ff"></span>#dff1ff caret only<br>
+      <em style="font-family:system-ui;font-size:11px;color:rgba(235,240,248,.55)">No accent at all — hierarchy is opacity. The creatures are the only color in the world, which is the point.</em>
+    </div></div>
+    <div><p class="sph">what i would cut</p><ul>
+      <li>Color swatches ("school of fish color rose"), every icon, every slider, the visible count.</li>
+      <li>The advanced section — advanced IS typing more words.</li>
+      <li>Honest risk: discoverability. Mitigated by ghost hints, but this direction trades first-run ease for total calm.</li>
+    </ul></div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1d BATHYSCAPHE ============ -->
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>bathyscaphe — a warm analog dive console; brass-phosphor instruments in cold water</div>
+<div style="position:relative;width:1440px;height:840px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:8px">
+  <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="jelly" cx="0.4" cy="0.42" scale="1.1" seed="11" style="position:absolute;inset:0" hint-size="100%,100%"><div style="position: absolute; left: 1140px; top: 49px; width: 242px; padding: 16px 20px; background: rgba(10,8,4,.42); backdrop-filter: blur(8px); border: 1px solid rgba(255,195,122,.18); border-radius: 4px; color: rgba(255,235,214,.6)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px"><span style="font:500 12px 'Spectral',serif;font-variant:small-caps;letter-spacing:.14em;color:#ffd9a8">jellyfish</span><span style="font:9px 'IBM Plex Mono',monospace;color:rgba(255,214,168,.35)">j·01</span></div>
+    <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.1em">
+      <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px;color:rgba(255,235,214,.5)">glow</span><div style="position:relative;flex:1;height:1px;background:rgba(255,195,122,.2)"><div style="position:absolute;left:62%;top:-4.5px;width:2px;height:10px;background:#ffc37a;box-shadow:0 0 7px rgba(255,195,122,.8)"></div></div><span style="width:24px;text-align:right;color:#ffc37a">62</span></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px;color:rgba(255,235,214,.5)">tempo</span><div style="position:relative;flex:1;height:1px;background:rgba(255,195,122,.2)"><div style="position:absolute;left:40%;top:-4.5px;width:2px;height:10px;background:#ffc37a;box-shadow:0 0 7px rgba(255,195,122,.8)"></div></div><span style="width:24px;text-align:right;color:#ffc37a">40</span></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px;color:rgba(255,235,214,.5)">sway</span><div style="position:relative;flex:1;height:1px;background:rgba(255,195,122,.2)"><div style="position:absolute;left:25%;top:-4.5px;width:2px;height:10px;background:#ffc37a;box-shadow:0 0 7px rgba(255,195,122,.8)"></div></div><span style="width:24px;text-align:right;color:#ffc37a">25</span></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:11px 0"><span style="width:42px;color:rgba(255,235,214,.5)">size</span><div style="position:relative;flex:1;height:1px;background:rgba(255,195,122,.2)"><div style="position:absolute;left:52%;top:-4.5px;width:2px;height:10px;background:#ffc37a;box-shadow:0 0 7px rgba(255,195,122,.8)"></div></div><span style="width:24px;text-align:right;color:#ffc37a">3.1</span></div>
+    </div>
+    <div style="height:1px;background:rgba(255,195,122,.14);margin:13px 0"></div>
+    <div style="display:flex;gap:14px;font:9.5px 'IBM Plex Mono',monospace;color:rgba(255,235,214,.4)"><span style-hover="color:rgba(255,235,214,.85);cursor:pointer">re-form</span><span style-hover="color:rgba(255,235,214,.85);cursor:pointer">release</span><span style-hover="color:rgba(255,235,214,.85);cursor:pointer">more ›</span></div>
+  </div></x-import>
+  <span class="chip">state · creature selected</span>
+  
+  
+  <div style="position:absolute;left:50%;bottom:56px;transform:translateX(-50%);display:flex;align-items:center;gap:12px">
+    <span style="position:relative;width:6px;height:6px;border-radius:50%;background:#ffc37a;box-shadow:0 0 8px rgba(255,195,122,.8)"><span style="position:absolute;inset:-4px;border-radius:50%;border:1px solid rgba(255,195,122,.5);animation:ping 2.6s ease-out infinite"></span></span>
+    <span style="width:300px;text-align:center;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,235,214,.3);padding-bottom:10px;border-bottom:1px solid rgba(255,195,122,.28)">name a creature</span>
+  </div>
+</div>
+<div style="display:flex;gap:16px;width:1440px;align-items:stretch">
+  <div style="display:flex;flex-direction:column;gap:12px;flex:none">
+    <div><p class="mcap">at rest — port light, input, weather rotary</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="jelly" cx="0.38" cy="0.42" scale="0.55" seed="12" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+      <div style="position:absolute;right:20px;bottom:18px;width:40px;height:40px;border-radius:50%;background:repeating-conic-gradient(rgba(255,195,122,.3) 0deg 1.6deg,transparent 1.6deg 72deg)"><div style="position:absolute;inset:3px;border-radius:50%;background:rgba(6,7,9,.92)"></div><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:italic 7px 'Spectral',serif;color:#ffd9a8">moonlit</span></div>
+      <div style="position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:160px;text-align:center;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,235,214,.3);padding-bottom:6px;border-bottom:1px solid rgba(255,195,122,.28)">name a creature</div>
+    </div></div>
+    <div><p class="mcap">ambient · console sinks after the needles settle</p>
+    <div style="position:relative;width:448px;height:230px;background:radial-gradient(120% 90% at 50% -10%,#0a1522 0%,#04060a 60%);overflow:hidden;border-radius:6px">
+      <x-import component-from-global-scope="fake-scene" from="./fake-scene.js" variant="jelly" cx="0.52" cy="0.46" scale="0.55" seed="13" style="position:absolute;inset:0" hint-size="100%,100%"></x-import>
+    </div></div>
+  </div>
+  <div class="sp" style="width:auto;flex:1;grid-template-columns:1fr 1fr;align-content:start">
+    <div><p class="sph">interaction model</p><ul>
+      <li>At rest: input with its amber port light, plus the weather rotary — presets are literally a dial you turn through moods.</li>
+      <li>On select: a gauge plate rises near the creature and the two console dials (glow, tempo) wake to mirror it. Turn a dial or drag the plate's needle — same value.</li>
+      <li>"log ▸" latch holds snapshot / record / share; count is engraved inside it.</li>
+      <li>Ambient: needles keep drifting with the water for ~3s, then the whole console sinks out of frame.</li>
+    </ul></div>
+    <div><p class="sph">micro-interactions</p><ul>
+      <li>Dials turn with inertia and soft felt detents; the needle overshoots one degree and settles.</li>
+      <li>Panels surface like rising through water: blur 8px→0 + 6px upward drift over 400ms.</li>
+      <li>Enter: a single sonar ring expands from the port light; the ripple's radius matches the new creature's size.</li>
+    </ul></div>
+    <div><p class="sph">type + color</p><div class="tk">
+      Spectral small-caps 10–12px labels · IBM Plex Mono readouts<br>
+      <span class="sw" style="background:#ffc37a"></span>oklch(.85 .09 75) ≈ #ffc37a phosphor amber<br>
+      <span class="sw" style="background:rgba(255,195,122,.2)"></span>brass hairlines 18–28%<br>
+      <em style="font-family:system-ui;font-size:11px;color:rgba(235,240,248,.55)">Why replace #8fd8ff entirely: amber is the maximum hue distance from the cyan creatures — chrome stays legible when a bright form passes behind it, and warm-vs-cold says "vessel vs water".</em>
+    </div></div>
+    <div><p class="sph">what i would cut</p><ul>
+      <li>Behavior modes collapse to one 5-notch rotary inside "more".</li>
+      <li>No advanced section at all in v1 — twinkle/iridescence/density wait until the console earns them.</li>
+      <li>No color swatches; hue rides the weather ring.</li>
+    </ul></div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "prototype the formation moment for <a class="dv-oid" href="#1a">1a</a>" · "merge <a class="dv-oid" href="#1c">1c</a>'s summon line into <a class="dv-oid" href="#1b">1b</a>'s rail" · "show <a class="dv-oid" href="#1d">1d</a>'s weather ring turning"</p>
+</section>
+
+</x-dc>
+</body>
+</html>

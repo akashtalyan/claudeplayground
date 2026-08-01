@@ -103,13 +103,26 @@ export const EXTINCTION = Object.freeze([0.045, 0.0165, 0.008]);
 // Downwelling light AT the surface, in linear light, pre-exposure — this is a
 // night ocean, so "brightest" is still dim. The final ACES+sRGB pass is the
 // only tonemap (frame-graph rule 2); nothing here encodes.
-export const SURFACE_LIGHT = Object.freeze([0.03, 0.055, 0.075]);
+//
+// Calibration note (why these numbers and not "whatever looks bright"): the
+// trails pass subtracts a 1.5/255 epsilon per frame below 8/255, so a STEADY
+// emitter only survives above eps/(1 − fadeK) — 0.0235 linear under the
+// moonlit preset, 0.0062 under ink. That is a hard black floor the background
+// sits against. These values put the sunlit zone above it (the upper ~100 m
+// visibly glows) and mid-water below it (the default board's water stays the
+// near-black v3.3 water), which is both the calibration that keeps v3.3
+// unchanged at the default depth and, happily, the truth about night water.
+export const SURFACE_LIGHT = Object.freeze([0.022, 0.04, 0.055]);
 
-// The lobe of moon/sky light that reads as "the surface, above you".
-export const SURFACE_GLOW = Object.freeze([0.075, 0.095, 0.115]);
+// The lobe of moon/sky light that reads as "the surface, above you". Peaks
+// around 165-205/255 after ACES at the app's 3.4 exposure: a bright silver
+// ceiling, deliberately short of blowout since bloom smears it further.
+export const SURFACE_GLOW = Object.freeze([0.02, 0.026, 0.032]);
 
-// Abyssal sediment floor — warm-neutral silt against the cold water.
-export const FLOOR_COLOUR = Object.freeze([0.048, 0.044, 0.038]);
+// Abyssal sediment floor — warm-neutral silt against the cold water. Above the
+// moonlit epsilon floor (see above) by design, or the seabed would render as
+// the same black as the water and the column would end in nothing.
+export const FLOOR_COLOUR = Object.freeze([0.038, 0.035, 0.03]);
 
 // transmittance from the surface down to depthM, per channel
 export function transmittanceInto(depthM, out) {
@@ -139,17 +152,17 @@ export function transmittanceInto(depthM, out) {
 //   floor     how present the seabed haze is
 const KEYS = [
   //         m     caustics sedAlpha sedFrac fogScale        tint          shimmer glow  bio  floor
-  { m: 0, caustics: 1.0, sedAlpha: 0.45, sedFrac: 0.15, fogScale: 0.55, tint: [1.15, 1.0, 0.9], shimmer: 1.0, glow: 1.0, bio: 0.0, floor: 0 },
-  { m: -40, caustics: 1.0, sedAlpha: 0.58, sedFrac: 0.24, fogScale: 0.66, tint: [1.16, 1.0, 0.9], shimmer: 0.8, glow: 0.88, bio: 0.02, floor: 0 },
-  { m: -80, caustics: 1.0, sedAlpha: 0.74, sedFrac: 0.36, fogScale: 0.8, tint: [1.14, 1.01, 0.92], shimmer: 0.42, glow: 0.62, bio: 0.05, floor: 0 },
-  { m: -160, caustics: 1.0, sedAlpha: 1.0, sedFrac: 0.62, fogScale: 1.0, tint: [1.0, 1.0, 1.0], shimmer: 0.08, glow: 0.26, bio: 0.1, floor: 0 },
-  { m: -300, caustics: 0.62, sedAlpha: 1.04, sedFrac: 0.68, fogScale: 1.18, tint: [1.14, 1.03, 0.94], shimmer: 0, glow: 0.08, bio: 0.18, floor: 0 },
-  { m: -400, caustics: 0.0, sedAlpha: 1.06, sedFrac: 0.71, fogScale: 1.3, tint: [1.24, 1.07, 0.92], shimmer: 0, glow: 0.03, bio: 0.23, floor: 0 },
-  { m: -500, caustics: 0.0, sedAlpha: 1.08, sedFrac: 0.74, fogScale: 1.45, tint: [1.36, 1.13, 0.9], shimmer: 0, glow: 0.012, bio: 0.3, floor: 0 },
-  { m: -800, caustics: 0.0, sedAlpha: 1.16, sedFrac: 0.84, fogScale: 1.85, tint: [1.7, 1.26, 0.86], shimmer: 0, glow: 0, bio: 0.55, floor: 0.04 },
-  { m: -1000, caustics: 0.0, sedAlpha: 1.24, sedFrac: 0.92, fogScale: 2.1, tint: [1.9, 1.33, 0.84], shimmer: 0, glow: 0, bio: 0.75, floor: 0.3 },
-  { m: -1120, caustics: 0.0, sedAlpha: 1.34, sedFrac: 0.98, fogScale: 2.35, tint: [2.0, 1.38, 0.83], shimmer: 0, glow: 0, bio: 0.9, floor: 0.8 },
-  { m: -1200, caustics: 0.0, sedAlpha: 1.4, sedFrac: 1.0, fogScale: 2.5, tint: [2.05, 1.4, 0.83], shimmer: 0, glow: 0, bio: 1.0, floor: 1.0 },
+  { m: 0, caustics: 1.0, sedAlpha: 0.45, sedFrac: 0.13, fogScale: 0.55, tint: [1.15, 1.0, 0.9], shimmer: 1.0, glow: 1.0, bio: 0.0, floor: 0 },
+  { m: -40, caustics: 1.0, sedAlpha: 0.58, sedFrac: 0.2, fogScale: 0.66, tint: [1.16, 1.0, 0.9], shimmer: 0.8, glow: 0.88, bio: 0.02, floor: 0 },
+  { m: -80, caustics: 1.0, sedAlpha: 0.74, sedFrac: 0.3, fogScale: 0.8, tint: [1.14, 1.01, 0.92], shimmer: 0.42, glow: 0.62, bio: 0.05, floor: 0 },
+  { m: -160, caustics: 1.0, sedAlpha: 1.0, sedFrac: 0.52, fogScale: 1.0, tint: [1.0, 1.0, 1.0], shimmer: 0.08, glow: 0.26, bio: 0.1, floor: 0 },
+  { m: -300, caustics: 0.62, sedAlpha: 1.04, sedFrac: 0.6, fogScale: 1.18, tint: [1.14, 1.03, 0.94], shimmer: 0, glow: 0.08, bio: 0.18, floor: 0 },
+  { m: -400, caustics: 0.0, sedAlpha: 1.06, sedFrac: 0.64, fogScale: 1.3, tint: [1.24, 1.07, 0.92], shimmer: 0, glow: 0.03, bio: 0.23, floor: 0 },
+  { m: -500, caustics: 0.0, sedAlpha: 1.08, sedFrac: 0.68, fogScale: 1.45, tint: [1.36, 1.13, 0.9], shimmer: 0, glow: 0.012, bio: 0.3, floor: 0 },
+  { m: -800, caustics: 0.0, sedAlpha: 1.16, sedFrac: 0.8, fogScale: 1.85, tint: [1.7, 1.26, 0.86], shimmer: 0, glow: 0, bio: 0.55, floor: 0.04 },
+  { m: -1000, caustics: 0.0, sedAlpha: 1.24, sedFrac: 0.9, fogScale: 2.1, tint: [1.9, 1.33, 0.84], shimmer: 0, glow: 0, bio: 0.75, floor: 0.3 },
+  { m: -1120, caustics: 0.0, sedAlpha: 1.34, sedFrac: 0.97, fogScale: 2.35, tint: [2.0, 1.38, 0.83], shimmer: 0, glow: 0, bio: 0.9, floor: 0.8 },
+  { m: -1200, caustics: 0.0, sedAlpha: 1.4, sedFrac: 1, fogScale: 2.5, tint: [2.05, 1.4, 0.83], shimmer: 0, glow: 0, bio: 1.0, floor: 1.0 },
 ];
 
 function smoothstep01(t) {

@@ -113,7 +113,7 @@ export function lightAt(m) {
 // ---- seabed relief --------------------------------------------------------
 // A pure, deterministic dune field: three incommensurate sines, no storage, no
 // RNG. Rooted flora are planted ON it (seabedYAt(x, z)) so plants and the dot
-// floor agree exactly. Amplitude ±86 px ≈ ±17 m of gentle relief.
+// floor agree exactly. Amplitude ±75 px ≈ ±15 m of gentle relief.
 // Wavelengths (~2400 / 900 / 400 world px) are sized to the strip of floor the
 // porthole actually frames — longer ones read as a flat plateau, not dunes.
 const RIDGE = [
@@ -434,7 +434,7 @@ export function createColumn(scene, globalUniforms, opts = {}) {
 
   const seabed = wantLayers
     ? buildSheet(scene, globalUniforms, {
-        count: opts.seabedCount ?? 620,
+        count: opts.seabedCount ?? 760,
         seed: baseSeed ^ 0x5eab3d00,
         planeYAt: seabedYAt,
         relLo: 0,
@@ -451,7 +451,7 @@ export function createColumn(scene, globalUniforms, opts = {}) {
 
   const surface = wantLayers
     ? buildSheet(scene, globalUniforms, {
-        count: opts.surfaceCount ?? 460,
+        count: opts.surfaceCount ?? 520,
         seed: baseSeed ^ 0x51f4ace0,
         planeYAt: () => SURFACE_Y,
         relLo: -22, // the boundary has thickness: dots hang just under it

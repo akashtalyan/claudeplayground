@@ -703,10 +703,17 @@ function boot() {
       const EXCL = 220;
       if (Math.abs(px) < EXCL) px = (px < 0 ? -1 : 1) * (EXCL + (EXCL - Math.abs(px)) * 0.6);
       const pz = -280 + prng() * 260;
-      // px of stem clear of the sediment, so a short plant (seagrass, coral,
-      // anemone) sits ON the floor rather than half-buried in it.
-      const lift = 40 + prng() * 46;
-      liftPx = band.kind === 'rooted' ? lift : 0; // benthic hover comes from the band
+      // Rooted geometry puts the root anchor at LOCAL y = 0 (geometry-spec:
+      // "root at local origin, stem grows +Y"), so the object's origin IS the
+      // holdfast — placing it at the floor plants the thing. This used to add
+      // a 40-86 px LIFT to keep short plants "clear of the sediment", which
+      // instead left every plant hovering half a body-length above the seabed
+      // with a visible gap of open water under it. It is now a small negative
+      // embed: the base sinks a few px into the silt, which is where a
+      // holdfast actually is. Same single prng draw, so the frozen draw order
+      // (geometry-spec section 8) is untouched.
+      const embed = -(3 + prng() * 11);
+      liftPx = band.kind === 'rooted' ? embed : 0; // benthic hover comes from the band
       const pl = placeDepth({
         band, name: res.name, arch: res.arch, seed: res.seed, instance,
         x: px, z: pz, liftPx,

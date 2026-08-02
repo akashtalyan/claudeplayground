@@ -937,3 +937,55 @@ body:not(.booted) #depthgauge {
 #depthgauge.awake .dg-prov {
   opacity: 0.7;
 }
+
+/* ---- v3.5 specimen card ---------------------------------------------------
+   What the console knows about the REAL animal, under the controls that shape
+   the imaginary one. Deliberately secondary to the intent rows: smaller, more
+   transparent, no glass of its own. Rows are omitted upstream when the data
+   could not confirm a field, so nothing here needs an "unknown" state. */
+.plate-spec-divider { margin: 12px 0 11px; }
+
+.plate-spec-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 0;
+}
+.plate-spec-label {
+  font: 500 9.5px 'Spectral', Georgia, serif;
+  font-variant: small-caps;
+  letter-spacing: .14em;
+  color: rgba(255, 235, 214, .38);
+  flex: none;
+}
+.plate-spec-value {
+  font: 9.5px 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: .06em;
+  color: rgba(255, 214, 168, .72);
+  text-align: right;
+}
+/* Binomials are italicised — typographic correctness, and it visually marks
+   the real-world fact off from the app's own invented vocabulary. */
+.plate-spec-sci {
+  font: italic 500 10.5px 'Spectral', Georgia, serif;
+  letter-spacing: .04em;
+  color: #ffd9a8;
+}
+.plate-spec-note {
+  font: 9px 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: .04em;
+  line-height: 1.45;
+  color: rgba(255, 235, 214, .32);
+  margin: -2px 0 7px;
+}
+/* Provenance: quiet, but present. These figures were curated from public
+   sources, not pulled from an authoritative database, and the plate should
+   not pretend otherwise. */
+.plate-spec-prov {
+  font: 8.5px 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: .1em;
+  color: rgba(255, 235, 214, .2);
+  margin-top: 9px;
+  text-align: right;
+}

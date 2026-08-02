@@ -47,12 +47,17 @@
 //   the word is derived, never stored: a raw setParam from anywhere (URL
 //   restore, another agent's UI) leaves the row reading its NEAREST intent.
 
+import { statRows, DISCLAIMER } from '../oceandata.js';
+
 // v2 palette (particle-menagerie.html SWATCH): null = monochrome default
 const V2_PALETTE = [null, 45, 15, 185, 165, 215, 275, 310, 130];
 
 const SURFACE_MS = 400; // rise: blur 8px->0 + 6px upward drift, ease-out
 const SINK_MS = 300; // exit reverses, slightly faster
 const EDGE_PX = 14; // canvas-edge margin the plate never crosses
+// The depth gauge (v3.4) owns a hairline column down the LEFT edge; the plate
+// used to clamp straight over its numerals. Keep clear of it.
+const LEFT_KEEPOUT_PX = 150;
 const GAP_PX = 18; // gap between the creature's radius and the plate
 const FOLLOW_RATE = 10; // 1-exp(-rate*dt) anchor smoothing
 const OMEGA = 16; // needle spring, rad/s
@@ -106,7 +111,19 @@ export function initPlate(controls) {
   mkAction('re-form', 'reform');
   mkAction('release', 'release');
 
-  el.append(head, rowsEl, divider, actions);
+  // ---- v3.5 specimen card ------------------------------------------------
+  // What the console knows about the real animal, under the controls that
+  // shape the imaginary one. Rows come ready-made from oceandata.statRows():
+  // a field the research could not confirm is simply ABSENT from that array,
+  // so nothing here ever renders a placeholder, a zero, or a guess. A word
+  // with no record at all (nonsense, "blob", generic names) yields [] and the
+  // whole section stays hidden — the plate then looks exactly as it did.
+  const specDivider = document.createElement('div');
+  specDivider.className = 'plate-divider plate-spec-divider';
+  const specEl = document.createElement('div');
+  specEl.className = 'plate-spec';
+
+  el.append(head, rowsEl, divider, actions, specDivider, specEl);
   document.body.appendChild(el);
 
   // ---- intent rows --------------------------------------------------------
@@ -316,6 +333,41 @@ export function initPlate(controls) {
       snapRow(r, (sel.intents && sel.intents[r.axis]) || controls.getIntent(sel.id, r.axis));
     }
     markSwatch(sel.params.color ?? null);
+    populateSpecimen(sel);
+  }
+
+  // Render the researched record for this creature, or hide the section.
+  function populateSpecimen(sel) {
+    const list = statRows(sel.name);
+    specEl.textContent = '';
+    const has = list && list.length;
+    specDivider.style.display = has ? '' : 'none';
+    specEl.style.display = has ? '' : 'none';
+    if (!has) return;
+    for (const r of list) {
+      const row = document.createElement('div');
+      row.className = 'plate-spec-row';
+      const label = document.createElement('span');
+      label.className = 'plate-spec-label';
+      label.textContent = r.label;
+      const val = document.createElement('span');
+      // Binomials are italicised: typographic correctness, and it separates
+      // the real-world fact from the app's own invented controls.
+      val.className = r.key === 'species' ? 'plate-spec-value plate-spec-sci' : 'plate-spec-value';
+      val.textContent = r.key === 'iucn' && r.note ? `${r.value} (${r.note})` : r.value;
+      row.append(label, val);
+      specEl.appendChild(row);
+      if (r.note && r.key !== 'iucn') {
+        const note = document.createElement('div');
+        note.className = 'plate-spec-note';
+        note.textContent = r.note;
+        specEl.appendChild(note);
+      }
+    }
+    const prov = document.createElement('div');
+    prov.className = 'plate-spec-prov';
+    prov.textContent = DISCLAIMER;
+    specEl.appendChild(prov);
   }
 
   function surface(sel) {
@@ -377,7 +429,7 @@ export function initPlate(controls) {
     const h = el.offsetHeight;
     let tx = a.x + a.radiusPx + GAP_PX; // prefer beside, to the right
     if (tx + w + EDGE_PX > W) tx = a.x - a.radiusPx - GAP_PX - w; // flip left
-    tx = clamp(tx, EDGE_PX, Math.max(W - w - EDGE_PX, EDGE_PX));
+    tx = clamp(tx, LEFT_KEEPOUT_PX, Math.max(W - w - EDGE_PX, LEFT_KEEPOUT_PX));
     let ty = clamp(a.y - h / 2, EDGE_PX, Math.max(H - h - EDGE_PX, EDGE_PX));
     // The summon row (bottom-center, ~360px wide band above the bottom edge)
     // outranks the plate: lift the plate clear when they would overlap.

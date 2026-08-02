@@ -934,9 +934,17 @@ async function main() {
             throw new Error(`column: ${now.name} is ${off.toFixed(0)} m from its home depth after the camera travelled 1100 m — it is following the porthole`);
           }
         }
-        // and the column's vertical order is intact
+        // ...and the column's vertical order is intact. v3.5 reorders this:
+        // the old chain ended at kelp because kelp was the deepest thing on the
+        // board, planted on the abyssal plain. With real ranges the stack runs
+        // air-breather -> lit-shelf flora -> twilight drifter -> abyssal
+        // predator. Kelp vs jellyfish is a genuine ordering (kelp's band tops
+        // out at 30-40 m on the shelf; a jellyfish starts at 40 m), not an
+        // accident of seeds.
         const after = (n) => depths1.find((c) => c.name === n).depthM;
-        if (!(after('dolphin') < after('jellyfish') && after('jellyfish') < after('kelp'))) {
+        if (!(after('dolphin') < after('kelp')
+              && after('kelp') < after('jellyfish')
+              && after('jellyfish') < after('anglerfish'))) {
           throw new Error(`column: the species stack is out of order: ${JSON.stringify(s.after)}`);
         }
 

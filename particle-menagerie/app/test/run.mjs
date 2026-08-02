@@ -813,9 +813,13 @@ async function main() {
       //       same frame, byte for byte.
       // Step counts are deliberately lean — this is software GL.
       await scenario('column', async (s) => {
-        // a board that spans the whole column: air-breather / twilight drifter
-        // / flora rooted on the abyssal plain
-        const board = 'dolphin,jellyfish,kelp';
+        // A board that spans the whole column: air-breather / twilight drifter
+        // / abyssal predator / flora rooted on the LIT SHELF.
+        // v3.5: kelp used to be this board's deep anchor, back when every
+        // rooted plant was planted on the 1200 m plain. It is photosynthetic,
+        // so it now lives in the shallows and an anglerfish carries the deep
+        // end instead — which is the whole point of the ecology fix.
+        const board = 'dolphin,jellyfish,kelp,anglerfish';
         await load(`fixedstep=1&board=${encodeURIComponent(board)}`);
         await page.waitForFunction(() => window.__menagerie.column);
         await page.evaluate(() => window.__menagerie.ui.forceAmbient(true)); // chrome-free canvas
@@ -837,7 +841,8 @@ async function main() {
         const kelp = depths0.find((c) => c.name === 'kelp');
         const dolphin = depths0.find((c) => c.name === 'dolphin');
         const jelly = depths0.find((c) => c.name === 'jellyfish');
-        if (!kelp || !dolphin || !jelly) throw new Error(`column: board did not resolve: ${JSON.stringify(s.creatures)}`);
+        const deep = depths0.find((c) => c.name === 'anglerfish');
+        if (!kelp || !dolphin || !jelly || !deep) throw new Error(`column: board did not resolve: ${JSON.stringify(s.creatures)}`);
         // rooted flora is PLANTED — its holdfast sits ON or slightly IN the
         // substrate under its own (x, z). v3.5 note: this used to allow up to
         // 140px of LIFT, which is precisely the bug that made every plant hover
@@ -850,12 +855,27 @@ async function main() {
         if (!(lift >= -24 && lift <= 2)) {
           throw new Error(`column: kelp sits ${lift.toFixed(0)}px off its own substrate (want flush or slightly embedded; positive = hovering)`);
         }
-        if (!(kelp.depthM > 1100)) throw new Error(`column: kelp is at ${kelp.depthM.toFixed(0)} m, not on the abyssal plain`);
+        // v3.5: kelp is PHOTOSYNTHETIC. Its researched range is 0-40 m and it
+        // anchors on rock in the lit shallows — this assertion used to demand
+        // it be below 1100 m, i.e. on the abyssal plain in permanent darkness,
+        // which was the ecology inversion the ocean data exposed. A kelp forest
+        // in the abyss is the failure now, not the expectation.
+        if (!(kelp.depthM < 60)) {
+          throw new Error(`column: kelp is at ${kelp.depthM.toFixed(0)} m — it is photosynthetic and belongs on the lit shelf`);
+        }
         // a surface species is in the sunlit zone, an order of magnitude above it
         s.dolphinM = Math.round(dolphin.depthM);
         if (!(dolphin.depthM < 120)) throw new Error(`column: dolphin is at ${dolphin.depthM.toFixed(0)} m — it has to reach air`);
-        if (!(jelly.depthM > dolphin.depthM + 150)) {
-          throw new Error(`column: the board does not span depth (dolphin ${dolphin.depthM.toFixed(0)} m, jellyfish ${jelly.depthM.toFixed(0)} m)`);
+        // The board must genuinely span the column. The deep end is the
+        // anglerfish (500-1190 m), not a plant: a species' depth is drawn
+        // within its band from its seed, so pinning the span to a mid-water
+        // drifter like the jellyfish (40-520 m) would flake by seed.
+        s.deepM = Math.round(deep.depthM);
+        if (!(deep.depthM > 400)) {
+          throw new Error(`column: anglerfish is at ${deep.depthM.toFixed(0)} m — the deep end of the board is missing`);
+        }
+        if (!(deep.depthM > dolphin.depthM + 300)) {
+          throw new Error(`column: the board does not span depth (dolphin ${dolphin.depthM.toFixed(0)} m, anglerfish ${deep.depthM.toFixed(0)} m)`);
         }
 
         // -- (a) the four zones look different -------------------------------

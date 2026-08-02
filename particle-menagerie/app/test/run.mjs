@@ -604,7 +604,10 @@ async function main() {
       // gains a stricter one: a creature out of reach must still be out of
       // reach at the end, i.e. it never left its own water to answer.
       await scenario('gather', async (s) => {
-        await load('fixedstep=1&board=eel,fish,jellyfish,shark,octopus,kelp');
+        // anglerfish (500-1190 m) guarantees one creature living far outside
+        // earshot no matter where the vessel is looking — v3.5's real depth
+        // bands moved everything else into a much tighter spread.
+        await load('fixedstep=1&board=eel,fish,jellyfish,shark,octopus,kelp,anglerfish');
         await step(340); // formations complete, swimmers roam apart
         const setup = await page.evaluate(() => {
           const m = window.__menagerie;
@@ -718,23 +721,31 @@ async function main() {
       // creature-free baseline within the Phase B bound (+6). Bloom reads the
       // trail output and never feeds back, and this proves it. --------------
       await scenario('soakE', async (s) => {
+        // v3.5: the background is a WATER COLUMN, so its brightness depends on
+        // the vessel's depth. The baseline and the decayed frame must therefore
+        // be captured at the SAME depth or the comparison measures the water,
+        // not the trails — which is exactly what a 199-vs-234 "leak" turned out
+        // to be. Pin both to one depth.
+        const SOAK_DEPTH_M = 240;
         const extinguish = () =>
-          page.evaluate(() => {
+          page.evaluate((depthM) => {
             const m = window.__menagerie;
             m.test.releaseAll();
             m.controls.setPreset('ink', { snap: true });
             m.atmosphere.setIntensity(0);
             m.test.setPlankton(0);
             m.test.setTrails(0.99);
-          });
+            if (m.test.setDepth) m.test.setDepth(depthM, true);
+          }, SOAK_DEPTH_M);
         await load('fixedstep=1&board=eel');
         await extinguish();
         await step(300);
         const baseBuf = await shot('soakE-baseline.png');
         await load(`fixedstep=1&board=${encodeURIComponent('jellyfish,kelp,eel,fish')}`);
-        await page.evaluate(() =>
-          window.__menagerie.controls.setPreset('bioluminescent bay', { snap: true }),
-        );
+        await page.evaluate((depthM) => {
+          window.__menagerie.controls.setPreset('bioluminescent bay', { snap: true });
+          if (window.__menagerie.test.setDepth) window.__menagerie.test.setDepth(depthM, true);
+        }, SOAK_DEPTH_M);
         await step(2000); // ~33 s sim-time under bloom + atmosphere
         const fullBuf = await shot('soakE-full.png');
         const full = await pngStats(fullBuf, 'full');
@@ -827,12 +838,18 @@ async function main() {
         const dolphin = depths0.find((c) => c.name === 'dolphin');
         const jelly = depths0.find((c) => c.name === 'jellyfish');
         if (!kelp || !dolphin || !jelly) throw new Error(`column: board did not resolve: ${JSON.stringify(s.creatures)}`);
-        // rooted flora is PLANTED — on the seabed relief under its own (x, z),
-        // lifted only enough to sit on the sediment rather than in it
+        // rooted flora is PLANTED — its holdfast sits ON or slightly IN the
+        // substrate under its own (x, z). v3.5 note: this used to allow up to
+        // 140px of LIFT, which is precisely the bug that made every plant hover
+        // half a body-length above the floor with open water beneath it. The
+        // window is now a small embed: flush, or a few px into the silt, which
+        // is where a real holdfast is. Positive lift is a regression.
         if (kelp.kind !== 'rooted') throw new Error(`column: kelp is '${kelp.kind}', expected rooted`);
         const lift = kelp.y - kelp.floorY;
         s.kelp = { depthM: Math.round(kelp.depthM), liftPx: Math.round(lift) };
-        if (!(lift >= 0 && lift <= 140)) throw new Error(`column: kelp sits ${lift.toFixed(0)}px off its own seabed relief`);
+        if (!(lift >= -24 && lift <= 2)) {
+          throw new Error(`column: kelp sits ${lift.toFixed(0)}px off its own substrate (want flush or slightly embedded; positive = hovering)`);
+        }
         if (!(kelp.depthM > 1100)) throw new Error(`column: kelp is at ${kelp.depthM.toFixed(0)} m, not on the abyssal plain`);
         // a surface species is in the sunlit zone, an order of magnitude above it
         s.dolphinM = Math.round(dolphin.depthM);

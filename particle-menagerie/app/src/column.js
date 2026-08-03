@@ -156,19 +156,29 @@ export const RIDGE_AMP = RIDGE[0].a + RIDGE[1].a + RIDGE[2].a;
 // the abyssal plain — one pure function of (x, z), no mesh, no storage, no RNG
 // — plus one thing the plain does not have: an EDGE.
 //
-// Depth. The bench sits at SHELF_DEPTH_M with ±SHELF_AMP of reef relief, i.e.
-// its rock spans ~29-45 m. That is the honest window: it is deep enough that
-// the vessel can hover ABOVE it at every viewport height (see MIN_DEPTH_CAP_M),
-// and shallow enough to sit inside the 8-45 m band where kelp holdfasts, coral
-// heads, seagrass and anemones really do grow. Nothing here shortens the water:
-// the bench is ground, so the water above it is the water above it.
+// Depth. The bench sits at SHELF_DEPTH_M with ±SHELF_AMP of reef relief.
+//
+// v3.5.1: this was 37 m (rock spanning ~29-45 m), chosen so the vessel could
+// hover above the bench given a 24 m minimum camera depth. But rooted things
+// snap to the substrate, so that put every reef organism at ~37 m — deeper
+// than the researched range of the very species being depicted. Staghorn
+// coral (Acropora cervicornis) is 0-30 m, typically 5-25 m on forereefs;
+// planting it at 37 m is past its own maximum. Deeper corals exist, but they
+// are mesophotic and cold-water species, not this one.
+//
+// A rendering constraint was dictating a biology claim, so the constraint
+// moved instead: MIN_DEPTH_CAP_M drops to 9 m (the vessel may now rise into
+// genuinely shallow water) and the bench comes up to 19 m, spanning ~11-27 m.
+// That is inside the band where kelp holdfasts, coral heads, seagrass and
+// anemones actually grow. Nothing here shortens the water: the bench is
+// ground, so the water above it is the water above it.
 //
 // Wavelengths are ~2000 / 800 / 350 world px — deliberately shorter than the
 // abyssal dunes. A reef is lumpier than a sediment plain, and at the grazing
 // angle you see the bench from (you can only get ~10-20 m above it) short
 // wavelengths are what read as relief at all.
 /** Mean depth of the shelf bench, metres below the surface. */
-export const SHELF_DEPTH_M = 37;
+export const SHELF_DEPTH_M = 19;
 const REEF = [
   { a: 22, kx: 0.0031, kz: 0.0019, ph: 2.1 },
   { a: 11, kx: 0.0079, kz: -0.0043, ph: 0.4 },
@@ -398,7 +408,9 @@ const SEABED_STOP = 1.15;
 //
 // It is a ceiling, never a floor: on a short viewport SURFACE_STOP still wins,
 // so the porthole is never pushed up through the waterline.
-const MIN_DEPTH_CAP_M = 24;
+// The shallowest the vessel may rise. Lowered from 24 m so it can hover over
+// a reef bench that sits where reefs really are (see SHELF_DEPTH_M).
+const MIN_DEPTH_CAP_M = 9;
 
 // Layer extents, expressed as VIEW DISTANCE as a fraction of camDist — not as
 // absolute z. A ground plane's near edge has to come close enough to the lens

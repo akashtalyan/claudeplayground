@@ -321,7 +321,10 @@ async function main() {
       // ---- 11. Phase D controls: chrome + every plate knob + presets +
       // summon path + ambient + hover label + URL round-trip ---------------
       await scenario('controls', async (s) => {
-        await load(`fixedstep=1&board=${encodeURIComponent('jellyfish,manta')}`);
+        // inspector=off: v3.6 raises the specimen modal on selection, which
+        // would sit over the plate this scenario drives. The modal carries its
+        // own copy of these controls and is covered by its own checks.
+        await load(`fixedstep=1&inspector=off&board=${encodeURIComponent('jellyfish,manta')}`);
         await page.waitForFunction(
           () => window.__menagerie.ui && typeof window.__menagerie.ui.forceAmbient === 'function',
         );

@@ -989,3 +989,272 @@ body:not(.booted) #depthgauge {
   margin-top: 9px;
   text-align: right;
 }
+
+/* ==========================================================================
+   v3.6 — SPECIMEN INSPECTOR (markup built by src/ui/inspector.js)
+
+   NOTE, DELIBERATE: design/bathyscaphe/README.md says "No modals, no
+   navigation, no pages." The user explicitly overrode that rule for THIS
+   feature and this feature only ("when I click on a species make it open in a
+   modal ... specimen on the left and details on the right"). Everything else
+   in the contract is honoured to the letter here — the glass panel
+   rgba(10,8,4,.42) + 8px backdrop blur, the brass hairlines, amber phosphor
+   #ffc37a / #ffd9a8, Spectral 500 small-caps + IBM Plex Mono, the 400ms
+   rise-through-water entry (reversing at 300ms), and the 40% -> 85% hover
+   ramp. The intent rows literally reuse the gauge plate's classes, so the
+   detent strip and the amber needle are the same component, not a lookalike.
+   ========================================================================== */
+#inspector {
+  position: fixed;
+  inset: 0;
+  z-index: 20; /* above every other chrome layer (plate 6, summon/rotary 5) */
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+}
+#inspector.open {
+  display: flex;
+}
+#inspector.sinking {
+  pointer-events: none;
+}
+
+/* The water between you and the specimen: darkened and softly out of focus,
+   so the board is still THERE (it never pauses) but stops competing. */
+.insp-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 4, 7, 0.62);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+/* The instrument itself: one glass panel, the plate's material at scale. */
+.insp-modal {
+  position: relative;
+  display: flex;
+  width: min(1080px, 94vw);
+  height: min(660px, 86vh);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border);
+  border-radius: 4px;
+  overflow: hidden;
+  color: var(--warm-60);
+  outline: none;
+  will-change: transform, filter, opacity;
+}
+
+/* ---- left: the specimen stage ------------------------------------------ */
+.insp-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  border-right: 1px solid var(--brass-14);
+  /* the ground is painted in the composite shader (inspector.js QUAD_FRAG);
+     this is only what shows for the frame before the first render */
+  background: #04060a;
+}
+.insp-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.insp-canvas.dragging {
+  cursor: grabbing;
+}
+.insp-canvas:focus-visible {
+  outline: 1px solid var(--brass-28);
+  outline-offset: -1px;
+}
+
+/* Affordances float over the water at the plate's quietest ink; they are
+   instructions, not instruments. */
+.insp-hint {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  font: 400 9px var(--font-mono);
+  letter-spacing: 0.18em;
+  color: var(--warm-30);
+  pointer-events: none;
+}
+.insp-reset {
+  position: absolute;
+  right: 16px;
+  bottom: 13px;
+  font: 400 9.5px var(--font-mono);
+  letter-spacing: 0.1em;
+}
+
+/* ---- right: the record -------------------------------------------------- */
+.insp-detail {
+  flex: 0 0 336px;
+  box-sizing: border-box;
+  padding: 24px 26px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.insp-detail::-webkit-scrollbar {
+  width: 3px;
+}
+.insp-detail::-webkit-scrollbar-thumb {
+  background: var(--brass-20);
+}
+
+.insp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--brass-14);
+}
+.insp-name {
+  font: 500 16px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.16em;
+  color: var(--amber-bright);
+}
+.insp-tag {
+  font: 400 9px var(--font-mono);
+  color: rgba(255, 214, 168, 0.35);
+  flex: none;
+}
+
+/* The specimen record: the PRIMARY content of this pane, so it is given the
+   room the plate could not spare it. Rows are omitted upstream when the
+   research could not confirm a field (oceandata rule 1), which is why nothing
+   here has an "unknown" state to style. */
+.insp-spec-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 9px 0;
+}
+.insp-spec-label {
+  font: 500 10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: rgba(255, 235, 214, 0.42);
+  flex: none;
+}
+.insp-spec-value {
+  font: 400 10.5px var(--font-mono);
+  letter-spacing: 0.06em;
+  color: rgba(255, 214, 168, 0.8);
+  text-align: right;
+}
+/* Binomials in Spectral ITALIC: typographic correctness, and it marks the
+   real-world fact off from the app's own invented vocabulary. */
+.insp-spec-sci {
+  font: italic 500 13px var(--font-serif);
+  letter-spacing: 0.04em;
+  color: var(--amber-bright);
+}
+.insp-spec-note {
+  font: 400 9.5px var(--font-mono);
+  letter-spacing: 0.04em;
+  line-height: 1.55;
+  color: rgba(255, 235, 214, 0.34);
+  margin: -3px 0 10px;
+}
+/* A specimen with no researched record. One quiet line, no apology, no
+   placeholder figures, and no provenance for data that does not exist. */
+.insp-empty {
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  line-height: 1.7;
+  color: var(--warm-30);
+  margin: 4px 0 2px;
+}
+/* Provenance travels with the data (oceandata rule 5 / rule 6). */
+.insp-prov {
+  font: 400 9px var(--font-mono);
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+  color: rgba(255, 235, 214, 0.22);
+  margin-top: 14px;
+}
+
+/* ---- the controls, kept secondary to the record ------------------------- */
+.insp-divider {
+  margin: 18px 0 12px;
+}
+.insp-caption {
+  font: 500 9.5px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.18em;
+  color: rgba(255, 235, 214, 0.3);
+  margin-bottom: 4px;
+}
+/* The plate's rows at the same rhythm, in a narrower column: 336 - 52 padding
+   = 284 content, divided 44 label + 10 + strip + 10 + 92 word. */
+#inspector .plate-value {
+  width: 92px;
+}
+#inspector .plate-notches {
+  min-width: 34px;
+}
+.insp-actions {
+  margin-top: 16px;
+}
+
+/* Close: a word, not an icon (the design has no icons at all). */
+.insp-close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  font: 400 9.5px var(--font-mono);
+  letter-spacing: 0.16em;
+  z-index: 2;
+}
+
+/* ---- responsive: stacked on narrow viewports --------------------------- */
+@media (max-width: 880px), (max-height: 560px) {
+  #inspector {
+    padding: 12px;
+  }
+  .insp-modal {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
+  .insp-stage {
+    flex: 1 1 46%;
+    min-height: 200px;
+    border-right: 0;
+    border-bottom: 1px solid var(--brass-14);
+  }
+  .insp-detail {
+    flex: 1 1 54%;
+    padding: 18px 20px;
+  }
+  .insp-name {
+    font-size: 14px;
+  }
+}
+
+/* While the dialog owns the screen, nothing behind it is clickable. The
+   inspector puts `inspecting` on <body> for exactly this (and as a hook for
+   anything else the integrator wants to quiet down); the chrome is left
+   VISIBLE — the board never pauses, and watching your water go on without you
+   through the blurred backdrop is the point. */
+body.inspecting #summon,
+body.inspecting #plate,
+body.inspecting #rotary,
+body.inspecting #labels,
+body.inspecting #depthgauge {
+  pointer-events: none;
+}

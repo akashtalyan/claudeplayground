@@ -52,6 +52,7 @@ import { initRotary } from './ui/rotary.js';
 import { initAmbient } from './ui/ambient.js';
 import { initLabels } from './ui/labels.js';
 import { initDepthGauge } from './ui/depthgauge.js';
+import { initInspector } from './ui/inspector.js';
 import { initGather } from './gather.js';
 import { initCapture } from './capture.js';
 import { createGovernor } from './governor.js';
@@ -1269,6 +1270,16 @@ function boot() {
       // v3.4 — the vessel's depth instrument, down the left edge. It reads the
       // column and writes SET-POINTS to it; the column owns all easing.
       depthGauge: initDepthGauge(column),
+      // v3.6 — the specimen inspector. Clicking a creature raises a modal with
+      // the animal itself on the left, turnable to any angle, and its record
+      // on the right. It runs its OWN small renderer on its own canvas, so the
+      // board's HDR/trails/bloom chain is untouched by it.
+      // ?inspector=off keeps selection from raising the modal — the harness
+      // drives the plate directly, and an auto-raised modal would cover it.
+      inspector: initInspector(controls, {
+        state,
+        openOnSelect: params.get('inspector') !== 'off',
+      }),
     };
     // v3.4 — selecting a creature that is not in the porthole takes the vessel
     // to it. Clicking one you can see never moves the camera (it is in band by

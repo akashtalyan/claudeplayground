@@ -131,7 +131,12 @@ const REF_DIST = 10; // must match REF_DIST in shaders/dots.js
 // MEASURED radius below, which is a union over several phases of the animation
 // and so already carries the sway's own margin — a kelp at rest lands around
 // two thirds of the pane and its widest sweep still clears the edge.
-const FILL = 0.84;
+// v3.6.1: 0.84 -> 1.06. The modal grew 200px wider and the specimen was left
+// swimming in the extra space. The measured radius is a UNION over several
+// animation phases, so a value above 1 is not clipping — it fills the pane at
+// the sweep's widest and reads generously the rest of the time, which is what
+// an inspector wants. The dolly clamps still let you pull back.
+const FILL = 1.06;
 // Opening pitch when the archetype has no pitch of its own (see openPitch()).
 const PITCH_DEFAULT = 0.18;
 const EASE_RATE = 4.5; // same coefficient main.js eases positions AND normals with

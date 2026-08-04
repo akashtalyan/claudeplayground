@@ -1036,8 +1036,11 @@ body:not(.booted) #depthgauge {
 .insp-modal {
   position: relative;
   display: flex;
-  width: min(1080px, 94vw);
-  height: min(660px, 86vh);
+  /* v3.6.1: +200px wide (1080 -> 1280) and taller. The stage gains most of
+     it, but the detail pane widens too so the intent notch strips are long
+     enough to scrub smoothly rather than jumping a notch per few px. */
+  width: min(1280px, 94vw);
+  height: min(760px, 88vh);
   background: var(--glass);
   -webkit-backdrop-filter: blur(var(--glass-blur));
   backdrop-filter: blur(var(--glass-blur));
@@ -1098,9 +1101,9 @@ body:not(.booted) #depthgauge {
 
 /* ---- right: the record -------------------------------------------------- */
 .insp-detail {
-  flex: 0 0 336px;
+  flex: 0 0 384px;
   box-sizing: border-box;
-  padding: 24px 26px 22px;
+  padding: 24px 28px 22px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }

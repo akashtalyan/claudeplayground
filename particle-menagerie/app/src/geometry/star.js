@@ -51,7 +51,12 @@ const K_WIG = 2.6;
 //            discFlat 1 is a ball (urchin test), 0.16 a plate (sand dollar).
 //   long     x-stretch of the whole animal. Radial symmetry is exactly wrong
 //            for a lobster; this is the axis that says "bilateral, elongate".
-//   curl     static tip curl ×. Negative bends the tips DOWN — crab legs.
+//   curl     static tip curl ×. Negative bends the tips DOWN.
+//   knee     mid-arm lift. curl alone is a single u^2 arc, which can bend an
+//            arm down but cannot make it ARCH — and a crab leg's whole read is
+//            that it rises off the body and then drops to the ground. knee
+//            adds a u(1-u) hump that peaks mid-arm and is zero at both ends,
+//            so knee>0 with curl<0 is exactly that profile.
 //   spin     idle-spin ×.
 //   scale/tempo/speed  world hints for lexicon.js; ignored here.
 export const STAR_MORPHS = {
@@ -88,7 +93,7 @@ export const STAR_MORPHS = {
   },
   // A flattened, burrowing urchin: all test, spines reduced to a velvet nap.
   sanddollar: {
-    armMul: 3.0, armLen: 0.06, armR: 0.42, armTaper: 1.4, dome: 0.22, squash: 1,
+    armMul: 3.0, armLen: 0.3, armR: 0.3, armTaper: 1.7, dome: 0.34, squash: 1,
     disc: 2.1, discFlat: 0.14, long: 1, curl: 0.1, spin: 0.2,
     scale: 0.5, tempo: 0.25, speed: 0.1,
   },
@@ -97,26 +102,26 @@ export const STAR_MORPHS = {
   // hence the negative curl.
   crab: {
     armMul: 1.65, armLen: 1.0, armR: 0.44, armTaper: 1.0, dome: 0.12, squash: 0.7,
-    disc: 1.55, discFlat: 0.4, long: 0.92, curl: -1.6, spin: 0.35,
+    disc: 1.55, discFlat: 0.4, long: 0.92, curl: -7.5, knee: 6.0, spin: 0.35,
     scale: 0.65, tempo: 0.9, speed: 0.5,
   },
   // Hermits wear a shell, so the "disc" is a tall lump rather than a plate.
   hermitcrab: {
     armMul: 1.35, armLen: 0.85, armR: 0.42, armTaper: 1.0, dome: 0.1, squash: 0.7,
-    disc: 1.3, discFlat: 0.85, long: 1.15, curl: -1.4, spin: 0.3,
+    disc: 1.3, discFlat: 0.85, long: 1.15, curl: -6.5, knee: 5.0, spin: 0.3,
     scale: 0.5, tempo: 0.9, speed: 0.4,
   },
   // Nephropid: elongate and bilateral, not radial. `long` carries it.
   lobster: {
     armMul: 1.5, armLen: 0.95, armR: 0.42, armTaper: 1.05, dome: 0.1, squash: 0.65,
-    disc: 1.2, discFlat: 0.5, long: 2.7, curl: -1.2, spin: 0.25,
+    disc: 1.2, discFlat: 0.5, long: 2.7, curl: -5.5, knee: 4.5, spin: 0.25,
     scale: 0.85, tempo: 0.8, speed: 0.45,
   },
   // Limulus: one big smooth domed carapace, legs almost entirely hidden
   // beneath it, plus a long rigid telson the elongation stands in for.
   horseshoecrab: {
     armMul: 1.5, armLen: 0.5, armR: 0.36, armTaper: 1.2, dome: 0.05, squash: 0.75,
-    disc: 1.9, discFlat: 0.5, long: 1.45, curl: -1.0, spin: 0.15,
+    disc: 1.9, discFlat: 0.5, long: 1.45, curl: -5.0, knee: 4.2, spin: 0.15,
     scale: 0.8, tempo: 0.5, speed: 0.3,
   },
 };
@@ -173,6 +178,7 @@ export function makeStar(seed, opts = {}) {
     discFlat: preset?.discFlat ?? 0.4,
     long: preset?.long ?? 1,
     curl: preset?.curl ?? 1,
+    knee: preset?.knee ?? 0,
     spin: preset?.spin ?? 1,
   };
   const SQ = M.squash; // per-instance arm cross-section (was the module const)
@@ -291,7 +297,8 @@ export function makeStar(seed, opts = {}) {
   const drdsS = new Float32Array(armRings);
 
   const r0 = discR * 0.75; // arm root radius (emerges from under the disc rim)
-  const curlA = 0.14 * M.curl; // static tip curl (negative = crab legs, down)
+  const curlA = 0.14 * M.curl; // static tip curl (negative = tips down)
+  const kneeA = 0.14 * M.knee; // mid-arm arch (a crab leg's raised joint)
   const iXS = 1 / M.long;
   const XS = M.long; // x-stretch, applied to the arm curve as it is built so
   // the spine's arc length / curvature / frames all come out of the STRETCHED
@@ -342,7 +349,8 @@ export function makeStar(seed, opts = {}) {
     out[o] = (rad * cvCa - w * cvSa) * XS;
     // elevation out of the disc plane (dome), then the outward-traveling
     // ripple whose amplitude grows toward the tip, then the static curl
-    out[o + 1] = rad * cvEy + aY * Math.sin(K_RIP * u - rPhT + cvPh) * u + curlA * u * u;
+    out[o + 1] =
+      rad * cvEy + aY * Math.sin(K_RIP * u - rPhT + cvPh) * u + curlA * u * u + kneeA * u * (1 - u);
     out[o + 2] = rad * cvSa + w * cvCa;
   };
 

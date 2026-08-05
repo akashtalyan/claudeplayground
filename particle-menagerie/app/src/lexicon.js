@@ -48,6 +48,9 @@ export const LEX = {
     'ghost', 'phantom', 'wraith', 'spirit', 'seaangel', 'comb',
     // v3.7 the gelatinous, including the ones that make their own light
     'atolla', 'atollajellyfish', 'alarmjelly', 'crystaljelly', 'aequorea',
+    // v3.8 the folded species tokens (see PHRASES)
+    'moonjelly', 'aurelia', 'lionsmane', 'cyanea', 'boxjelly', 'cubozoan',
+    'irukandji', 'physalia', 'bluebottle', 'clione',
     'siphonophore', 'praya', 'combjelly', 'ctenophore',
   ],
   fish: [
@@ -105,7 +108,8 @@ export const LEX = {
   ],
   star: [
     'starfish', 'star', 'seastar', 'urchin', 'crab', 'brittlestar',
-    'sanddollar', 'basketstar', 'sunstar',
+    'sanddollar', 'basketstar', 'sunstar', 'ophiuroid', 'gorgonocephalus',
+    'echinoid', 'solaster', 'limulus', 'crayfish', 'langoustine',
     // v3.7 armoured, many-legged floor walkers (species-E)
     'lobster', 'hermitcrab', 'horseshoecrab',
   ],
@@ -175,6 +179,20 @@ const PHRASES = [
   ['red tide', 'redtide'], ['comb jelly', 'combjelly'],
   ['gulper eel', 'gulpereel'], ['pelican eel', 'pelicaneel'],
   ['tripod fish', 'tripodfish'], ['sea pickle', 'seapickle'],
+  // v3.8 — the echinoderms/arthropods and the gelatinous. Without these the
+  // words split and the FIRST token that matched anything won: "sun star" and
+  // "brittle star" both resolved on the bare token 'star' and came out as
+  // plain sea stars, and "sand dollar" matched nothing at all, so it fell
+  // through to the archetype fallback and was rendered as a RAY.
+  ['sea star', 'seastar'], ['sun star', 'sunstar'],
+  ['brittle star', 'brittlestar'], ['basket star', 'basketstar'],
+  ['sand dollar', 'sanddollar'], ['sea urchin', 'urchin'],
+  ['moon jelly', 'moonjelly'], ['moon jellyfish', 'moonjelly'],
+  ["lion's mane", 'lionsmane'], ['lions mane', 'lionsmane'],
+  ['box jelly', 'boxjelly'], ['sea wasp', 'boxjelly'],
+  ['portuguese man o war', 'manowar'], ['man o war', 'manowar'],
+  ['man of war', 'manowar'], ['sea gooseberry', 'combjelly'],
+  ['sea angel', 'seaangel'],
 ];
 
 // ---- modifiers -----------------------------------------------------------

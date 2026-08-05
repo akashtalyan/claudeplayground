@@ -70,6 +70,10 @@ uniform float uBioPhase;  // slow drift so the deep is alive while you hover
 uniform float uIntensity;
 uniform float uTime;
 
+// Thickness of the surface shimmer film, in METRES below the waterline. Every
+// other length in this shader is metric; this one used to be the odd one out.
+const float SHIMMER_M = 3.0;
+
 void main() {
 
 	// Depth of THIS row of the frame, metres below the surface. Rows ABOVE the
@@ -115,7 +119,20 @@ void main() {
 
 	// Wave shimmer hugging the surface film — two incommensurate ripples so
 	// the ceiling never visibly loops.
-	float band = exp( -abs( sd ) * 7.0 );
+	//
+	// The band's width is in METRES, not in uv. It used to be exp(-|sd|*7.0)
+	// with sd in uv, and one viewport spans ~160 m of water, so that "film"
+	// was a 23-METRE-THICK SLAB reaching from the surface most of the way down
+	// the frame. That alone would only have been a soft glow — what made it
+	// read as BANDING is that the ripple varies with vUv.x and not with depth at
+	// all, so the product's iso-contours are curves y(x) that undulate across
+	// the entire frame: five wavy ribbons of alternating tint laid over the
+	// whole water column, at an amplitude comparable to the water colour
+	// itself (uGlow*uShimmer*0.5 ~ 0.017 linear vs an ambient of ~0.02-0.05).
+	// Anchored in metres it is what the comment always claimed it was — a few
+	// metres of light dancing under the surface — and the column below it is
+	// left as the smooth gradient the optics compute.
+	float band = exp( -abs( sd ) * uSpanM * ( 1.0 / SHIMMER_M ) );
 	float ripple = 0.55 + 0.45
 		* sin( vUv.x * 34.0 + uTime * 0.8 + sin( vUv.x * 9.0 - uTime * 0.47 ) * 1.9 )
 		* ( 0.6 + 0.4 * sin( vUv.x * 17.0 - uTime * 0.61 ) );

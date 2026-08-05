@@ -7,7 +7,7 @@
 // breathing pulse traveling center→surface, slow differential drift-rotation
 // per shell (inner shells turn faster — v2's drift-morph, lifted to 3D).
 
-import { mulberry32 } from './rng.js';
+import { mulberry32, hashName } from './rng.js';
 import { TAU } from './spine.js';
 
 const GA = Math.PI * (3 - Math.sqrt(5)); // golden angle — Fibonacci lattice
@@ -24,6 +24,107 @@ const A2H = 0.3; // 2.4 the radial field stays within ±0.312 — shells can
 const A3H = 0.2; // never collapse through the center or fold negative)
 const SQUASH_Y = 0.88; // v2's gentle vertical squash
 
+// ---- named-species morph presets (v3.8) -----------------------------------
+// LEX.amorph is the catch-all bucket, so it had collected animals with wildly
+// different body plans — a krill, a scallop, a pyrosome and a copepod were all
+// the SAME gently-wobbling ball, differing only in size. The blob is the right
+// primitive for all of them (none has a skeleton the tube/sheet archetypes
+// could hang off), but it needed axes:
+//   size    R0 ×
+//   long    x semi-axis ×  — the ONLY way to say "this animal is a tube".
+//           A salp/pyrosome colony is a metres-long hollow cylinder; a krill is
+//           a 5:1 dart. A sphere cannot express either.
+//   flat    y semi-axis ×, on top of SQUASH_Y. A scallop is two hinged plates:
+//           its whole identity is that it is flat (0.3), and a sand-dollar-ish
+//           limpet likewise.
+//   wide    z semi-axis ×  — bivalve shells are flat AND round, not flat rods.
+//   lumpy   harmonic amplitude ×. A nudibranch is all frills (1.9); a shelled
+//           mollusc is smooth and rigid (0.15) — a wobbling clam is wrong.
+//   breath  breathing-pulse ×. Cemented/shelled things barely move.
+//   scale/tempo/speed  world hints for lexicon.js; ignored here.
+export const AMORPH_MORPHS = {
+  // Crustacean darts: long, laterally compressed, faintly segmented.
+  krill: {
+    size: 0.5, long: 2.6, flat: 0.62, wide: 0.72, lumpy: 1.25, breath: 1.3,
+    scale: 0.4, tempo: 1.6, speed: 1.3,
+  },
+  shrimp: {
+    size: 0.72, long: 2.3, flat: 0.7, wide: 0.78, lumpy: 1.2, breath: 1.15,
+    scale: 0.6, tempo: 1.35, speed: 1.1,
+  },
+  // Copepods are the most numerous animals on Earth and they are TINY —
+  // a millimetre of teardrop with one long antenna pair.
+  copepod: {
+    size: 0.34, long: 2.0, flat: 0.8, wide: 0.85, lumpy: 1.0, breath: 1.5,
+    scale: 0.3, tempo: 2.0, speed: 1.4,
+  },
+  // Bivalves: two flat, smooth, near-rigid plates. lumpy is nearly off.
+  bivalve: {
+    size: 0.62, long: 1.05, flat: 0.3, wide: 1.15, lumpy: 0.15, breath: 0.35,
+    scale: 0.5, tempo: 0.3, speed: 0.15,
+  },
+  // A scallop is a bivalve that SWIMS by clapping — same plates, live hinge.
+  scallop: {
+    size: 0.66, long: 1.0, flat: 0.34, wide: 1.15, lumpy: 0.22, breath: 1.5,
+    scale: 0.5, tempo: 1.1, speed: 0.5,
+  },
+  // Cemented cone on rock: a low dome, wider than tall, essentially inert.
+  barnacle: {
+    size: 0.5, long: 0.95, flat: 0.55, wide: 0.95, lumpy: 0.3, breath: 0.25,
+    scale: 0.35, tempo: 0.4, speed: 0,
+  },
+  // Sea slugs are soft, elongate and covered in cerata — maximum lumpy.
+  nudibranch: {
+    size: 0.72, long: 1.85, flat: 0.72, wide: 0.9, lumpy: 1.9, breath: 1.1,
+    scale: 0.5, tempo: 0.8, speed: 0.35,
+  },
+  // Pelagic tunicates: transparent hollow cylinders, some colonies metres long.
+  // Smooth to the point of featureless — the lumpy field is what would make a
+  // pyrosome look like a blob instead of a tube.
+  salp: {
+    size: 0.8, long: 3.4, flat: 0.85, wide: 0.85, lumpy: 0.12, breath: 0.8,
+    scale: 0.7, tempo: 0.6, speed: 0.45,
+  },
+  pyrosome: {
+    size: 1.15, long: 4.2, flat: 0.9, wide: 0.9, lumpy: 0.1, breath: 0.5,
+    scale: 1.4, tempo: 0.35, speed: 0.3,
+  },
+  // Single cells and the things that glow when you disturb them: small spheres.
+  microplankton: {
+    size: 0.3, long: 1, flat: 1, wide: 1, lumpy: 0.8, breath: 1.4,
+    scale: 0.28, tempo: 1.5, speed: 0.7,
+  },
+};
+const AMORPH_ALIASES = {
+  krill: ['krill', 'euphausiid'],
+  shrimp: ['shrimp', 'prawn', 'amphipod'],
+  copepod: ['copepod'],
+  bivalve: ['clam', 'quahog', 'oyster', 'mussel', 'cockle', 'abalone', 'limpet', 'chiton'],
+  scallop: ['scallop'],
+  barnacle: ['barnacle'],
+  nudibranch: ['nudibranch', 'seaslug', 'sea slug'],
+  salp: ['salp', 'seasquirt', 'sea squirt', 'tunicate'],
+  pyrosome: ['pyrosome', 'seapickle', 'sea pickle'],
+  microplankton: [
+    'plankton', 'foraminifera', 'foram', 'seasparkle', 'sea sparkle',
+    'noctiluca', 'dinoflagellate', 'dinoflagellatebloom', 'redtide', 'red tide',
+  ],
+};
+const MORPH_BY_SEED = new Map();
+for (const k of Object.keys(AMORPH_MORPHS)) {
+  for (const n of AMORPH_ALIASES[k] || [k]) {
+    MORPH_BY_SEED.set(hashName(n), AMORPH_MORPHS[k]);
+    MORPH_BY_SEED.set(hashName(n + 's'), AMORPH_MORPHS[k]);
+  }
+}
+/** Preset lookup by name, for lexicon.js (mirrors FISH_MORPHS[word] usage). */
+export function amorphMorphFor(word) {
+  if (!word) return null;
+  const w = String(word).toLowerCase().trim();
+  if (Object.prototype.hasOwnProperty.call(AMORPH_MORPHS, w)) return AMORPH_MORPHS[w];
+  return MORPH_BY_SEED.get(hashName(w)) || null;
+}
+
 export function makeAmorph(seed, opts = {}) {
   // v3.2 density uplift: 1300 dots / 12 shells → 3000 / 16 (2.31×). Shells and
   // dots rise together (~1.33× radial, ~1.35× tangential on the outer shell) so
@@ -34,13 +135,33 @@ export function makeAmorph(seed, opts = {}) {
   const shellCount = opts.shellCount ?? 16;
   const count = opts.count ?? 3000;
   const baseRadius = opts.radius ?? 1.8;
+  // preset resolution (pure function of opts.morph / seed — no RNG, so the
+  // frozen draw order below is untouched and determinism is unaffected)
+  const preset = opts.morph ?? MORPH_BY_SEED.get(seed >>> 0) ?? null;
+  // semi-axis scales. sy folds in v2's stock SQUASH_Y so an unpresetted blob
+  // is byte-identical to v3.7.
+  const M = {
+    size: preset?.size ?? 1,
+    sx: preset?.long ?? 1,
+    sy: SQUASH_Y * (preset?.flat ?? 1),
+    sz: preset?.wide ?? 1,
+    lumpy: preset?.lumpy ?? 1,
+    breath: preset?.breath ?? 1,
+  };
+  // Ellipsoid normal ∝ (x/a², y/b², z/c²). v3.7 normalized the raw position,
+  // which is only correct on a SPHERE; at sx = 4.2 (a pyrosome) that points a
+  // tube's flank down its own axis and the whole colony shades as one flat
+  // smear. Precomputing 1/s² keeps it to three multiplies per dot.
+  const iax = 1 / (M.sx * M.sx);
+  const iay = 1 / (M.sy * M.sy);
+  const iaz = 1 / (M.sz * M.sz);
 
   const rng = mulberry32(seed);
   // ---- FROZEN DRAW ORDER (spec §8) — append only, never insert ----
   const axZ = 2 * rng() - 1; //                           draw 1: drift axis
   const axAng = rng() * TAU; //                           draw 2
   const breathPhase = rng() * TAU; //                     draw 3
-  const R0 = baseRadius * (0.85 + 0.3 * rng()); //        draw 4: size jitter
+  const R0 = baseRadius * (0.85 + 0.3 * rng()) * M.size; // draw 4: size jitter
   const driftRate = 0.18 + 0.14 * rng(); //               draw 5: drift-morph
   const twistPerShell = (rng() * 2 - 1) * 0.7; //         draw 6: shell twist
   // 3 harmonics × (wave-vector dir 2, magnitude 1, phase 1) draws 7 .. 18
@@ -142,8 +263,8 @@ export function makeAmorph(seed, opts = {}) {
   function updateTargets(timeSec, sway, tempo, positions, normals) {
     const t = timeSec * tempo;
     const s = Math.min(sway, SWAY_MAX);
-    const br = BR_A * s;
-    const wob = WOB_A * s;
+    const br = BR_A * s * M.breath;
+    const wob = WOB_A * s * M.lumpy;
     const pB = breathPhase + W_BR * t;
     // per-frame trig: 2 per harmonic + 1 breath + 2 per shell — that's it
     const c1 = Math.cos(W1 * t);
@@ -183,18 +304,22 @@ export function makeAmorph(seed, opts = {}) {
         const x0 = dirX[d];
         const y0 = dirY[d];
         const z0 = dirZ[d];
-        const px = (m00 * x0 + m01 * y0 + m02 * z0) * rad;
-        const py = (m10 * x0 + m11 * y0 + m12 * z0) * rad * SQUASH_Y;
-        const pz = (m20 * x0 + m21 * y0 + m22 * z0) * rad;
-        // radial pseudo-normal from blob center (spec normals table)
-        const il = 1 / Math.sqrt(px * px + py * py + pz * pz);
+        const px = (m00 * x0 + m01 * y0 + m02 * z0) * rad * M.sx;
+        const py = (m10 * x0 + m11 * y0 + m12 * z0) * rad * M.sy;
+        const pz = (m20 * x0 + m21 * y0 + m22 * z0) * rad * M.sz;
+        // ellipsoid pseudo-normal from the blob center (spec normals table —
+        // still radial, now anisotropy-corrected so elongated bodies shade)
+        const nx = px * iax;
+        const ny = py * iay;
+        const nz = pz * iaz;
+        const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
         const o = perm[d] * 3;
         positions[o] = px;
         positions[o + 1] = py;
         positions[o + 2] = pz;
-        normals[o] = px * il;
-        normals[o + 1] = py * il;
-        normals[o + 2] = pz * il;
+        normals[o] = nx * il;
+        normals[o + 1] = ny * il;
+        normals[o + 2] = nz * il;
       }
     }
   }

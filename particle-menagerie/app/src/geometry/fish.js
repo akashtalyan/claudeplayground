@@ -45,13 +45,38 @@ const W_RATIO = Math.SQRT2 * 1.618033988749895 * 0.5;
 //             whale head is short AND blunt; snout alone couples the two
 //   width     lateral fatness multiplier: fish are laterally compressed
 //             (WF 0.45), cetaceans are near-round in section (WF ≈ 0.8)
+//   -- v3.8 audit fixes (all preset-only, neutral defaults) --
+//   anal      anal-fin height, the mirror of `dorsal` below the belly. Every
+//             real fish has one; without it a tall-dorsal disc morph reads
+//             lopsided and top-heavy (the angelfish/bluetang failure).
+//             Default 0.5 = a modest keel fin, so seed-only fish gain a small
+//             belly fin and nothing else changes.
+//   analLen   anal sail spread along its base (mirrors dorsalLen)
+//   melon     local head SWELLING, 0..1: a bump added to prof[] near f≈0.13
+//             that the monotone `snout` taper cannot express — a beluga's
+//             melon, a barreleye's clear dome, a mahi's square forehead.
+//   rayed     0..1: build the dorsal + pectorals as splayed separate QUILLS
+//             rather than a filled membrane (lionfish). Alternate rays shorten
+//             and every ray fans laterally with fv², so the fin reads as a
+//             fan of spines, not a sheet.
+//   filN/filLen/filFrac/filDir/filArc/filSpread/filBulb
+//             FILAMENTS — a new part, allocated only when filN > 0 (a preset
+//             axis, so a generic seed fish still has none and pays nothing).
+//             One arcing strand from the head is an anglerfish's illicium with
+//             its esca; three long strands pointing down are a tripod fish's
+//             stilts. Nothing in the dorsal/pectoral/caudal set can express
+//             either.
 // Exported for lexicon.js (resolve/params path). makeFish also resolves a
 // preset directly from its seed (hashName of the bare species name) so the
 // board path — which passes only the seed — gets species shapes for free.
 export const FISH_MORPHS = {
   shark: { elong: 1.24, depth: 0.82, fork: 1.15, dorsal: 1.75, dorsalLen: 0.72, pect: 1.25, snout: 1.15, tailLen: 1.0, scale: 1.35 },
   tuna: { elong: 1.12, depth: 1.0, fork: 1.35, dorsal: 0.85, dorsalLen: 0.9, pect: 0.85, snout: 1.05, tailLen: 0.9, scale: 1.12 },
-  angelfish: { elong: 0.7, depth: 1.5, fork: -0.35, dorsal: 1.85, dorsalLen: 1.25, pect: 0.75, snout: 0.75, tailLen: 0.6, scale: 0.85 },
+  // v3.8: gained the mirrored ANAL sail. Without it the tall dorsal made the
+  // disc lopsided and top-heavy; the symmetric dorsal/anal diamond is what an
+  // angelfish actually is. (Its lens-fat section is fixed by the absolute
+  // width rule below — WF no longer grows with depth.)
+  angelfish: { elong: 0.7, depth: 1.5, fork: -0.35, dorsal: 1.85, dorsalLen: 1.25, pect: 0.75, snout: 0.75, tailLen: 0.6, anal: 1.6, analLen: 1.4, scale: 0.85 },
   clownfish: { elong: 0.84, depth: 1.15, fork: -0.5, dorsal: 0.8, dorsalLen: 1.0, pect: 1.3, snout: 0.7, tailLen: 0.85, scale: 0.6 },
   marlin: { elong: 1.3, depth: 0.8, fork: 1.3, dorsal: 1.7, dorsalLen: 0.95, pect: 0.8, snout: 2.7, tailLen: 0.95, scale: 1.3 },
   swordfish: { elong: 1.32, depth: 0.78, fork: 1.3, dorsal: 1.3, dorsalLen: 0.8, pect: 0.8, snout: 2.9, tailLen: 0.95, scale: 1.3 },
@@ -68,10 +93,15 @@ export const FISH_MORPHS = {
     flukeH: 1, undulateH: 1, tailSpan: 1.45, snoutPow: 0.55, width: 1.85,
     scale: 2.35, tempo: 0.55, speed: 0.6,
   },
+  // v3.8: snout 1.9 gave a needle 22% of body length — a billfish, not a
+  // bottlenose. A dolphin's beak is short (~8%) and BLUNT-tipped, sitting in
+  // front of a bulging melon: snout down, snoutPow up (still pointed), and the
+  // melon axis supplies the forehead the monotone taper could never make.
   dolphin: {
-    elong: 1.55, depth: 0.95, fork: 1.7, dorsal: 1.55, dorsalLen: 0.6,
-    pect: 1.0, snout: 1.9, tailLen: 0.85,
-    flukeH: 1, undulateH: 1, tailSpan: 0.9, snoutPow: 0.85, width: 1.6,
+    elong: 1.55, depth: 0.95, fork: 1.7, dorsal: 1.55, dorsalLen: 0.45,
+    pect: 1.0, snout: 0.75, tailLen: 0.85,
+    flukeH: 1, undulateH: 1, tailSpan: 0.9, snoutPow: 2.2, width: 1.6,
+    melon: 0.45, anal: 0.25,
     scale: 1.2, tempo: 1.1, speed: 1.15,
   },
   orca: {
@@ -92,10 +122,13 @@ export const FISH_MORPHS = {
     flukeH: 1, undulateH: 1, tailSpan: 1.4, snoutPow: 0.6, width: 1.8,
     scale: 2.1, tempo: 0.6, speed: 0.65,
   },
+  // v3.8: the bulbous melon is the beluga's whole face and the monotone taper
+  // was defeating snoutPow 0.5 — melon 0.95 is the largest in the table.
   beluga: {
     elong: 1.45, depth: 1.05, fork: 1.05, dorsal: 0.1, dorsalLen: 1.5,
     pect: 1.0, snout: 0.42, tailLen: 0.85,
     flukeH: 1, undulateH: 1, tailSpan: 1.1, snoutPow: 0.5, width: 1.75,
+    melon: 0.95, anal: 0.2,
     scale: 1.25, tempo: 0.8, speed: 0.8,
   },
   porpoise: {
@@ -103,6 +136,106 @@ export const FISH_MORPHS = {
     pect: 0.85, snout: 0.6, tailLen: 0.8,
     flukeH: 1, undulateH: 1, tailSpan: 0.95, snoutPow: 0.7, width: 1.55,
     scale: 0.85, tempo: 1.15, speed: 1.2,
+  },
+
+  // ---- v3.8: the reef + pelagic species that had NO entry and rendered as
+  // eight interchangeable seed-jitter fish. Each one leads with the single
+  // feature a viewer names the animal by.
+  // Deep symmetric disc framed by dorsal AND anal sails, tiny pointed snout.
+  bluetang: {
+    elong: 0.72, depth: 1.65, fork: 1.2, dorsal: 1.3, dorsalLen: 1.6,
+    pect: 0.9, snout: 1.4, snoutPow: 2.0, tailLen: 0.7, tailSpan: 1.3,
+    anal: 1.25, analLen: 1.55, scale: 0.7,
+  },
+  // Rhomboid, tall trailing dorsal AND anal (the balistiform swim), tiny mouth.
+  triggerfish: {
+    elong: 0.85, depth: 1.45, fork: 0.1, dorsal: 1.5, dorsalLen: 0.55,
+    pect: 1.0, snout: 1.3, snoutPow: 1.8, tailLen: 0.9,
+    anal: 1.4, analLen: 0.6, scale: 0.8,
+  },
+  // Blunt beaked head + the oversized rowing pectorals it actually swims with.
+  parrotfish: {
+    elong: 0.9, depth: 1.32, fork: 0.15, dorsal: 0.7, dorsalLen: 1.5,
+    pect: 2.0, snout: 0.55, snoutPow: 0.4, tailLen: 1.1, tailSpan: 1.15,
+    anal: 0.8, analLen: 1.3, melon: 0.3, scale: 0.9,
+  },
+  // Square forehead (melon), one dorsal from the eye to the tail, deep fork.
+  mahimahi: {
+    elong: 1.15, depth: 1.32, fork: 1.5, dorsal: 1.7, dorsalLen: 1.9,
+    pect: 0.9, snout: 0.5, snoutPow: 0.35, tailLen: 1.0, tailSpan: 1.2,
+    anal: 0.85, analLen: 1.4, melon: 0.55, scale: 1.15,
+  },
+  // The sail and the bill. dorsalLen 1.8 with dor0 pulled forward is what
+  // makes the dorsal run the whole length of the back.
+  sailfish: {
+    elong: 1.35, depth: 0.85, fork: 1.35, dorsal: 3.4, dorsalLen: 1.8,
+    pect: 0.8, snout: 2.4, snoutPow: 1.3, tailLen: 1.0, tailSpan: 1.25,
+    anal: 0.55, scale: 1.35,
+  },
+  // Globular bulb + the illicium. The filament IS the animal.
+  anglerfish: {
+    elong: 0.72, depth: 1.35, fork: -0.8, dorsal: 0.4, dorsalLen: 0.6,
+    pect: 0.7, snout: 0.35, snoutPow: 0.3, tailLen: 0.7, width: 1.7,
+    anal: 0.45, melon: 0.25,
+    filN: 1, filLen: 0.6, filFrac: 0.11, filDir: [0.55, 0.83, 0],
+    filArc: -0.85, filSpread: 0, filBulb: 1, filRad: 1.0,
+    scale: 0.75,
+  },
+  // The fins ARE the lionfish: rayed quills, huge in both the dorsal and the
+  // pectoral. Without `rayed` the parameters alone read as a big membrane.
+  lionfish: {
+    elong: 0.9, depth: 1.3, fork: -0.5, dorsal: 2.6, dorsalLen: 1.7,
+    pect: 2.8, snout: 1.1, tailLen: 1.2, rayed: 1,
+    anal: 1.3, analLen: 1.0, scale: 0.7,
+  },
+  // A near-sphere with tiny fins — width 2.5 with the absolute-width rule is
+  // what makes the section round instead of a slab.
+  pufferfish: {
+    elong: 0.6, depth: 1.42, fork: -0.9, dorsal: 0.45, dorsalLen: 0.7,
+    pect: 1.1, snout: 0.4, snoutPow: 0.3, tailLen: 0.6, tailSpan: 0.9,
+    width: 2.7, anal: 0.45, melon: 0.2, scale: 0.75,
+  },
+
+  // ---- v3.8: the deep-sea lamps. Before this every one of them was the
+  // identical seed-default fish; the light records were aimed at geometry
+  // that did not exist.
+  // Long, shallow, tall short-based first dorsal standing in for the lit ray.
+  viperfish: {
+    elong: 1.45, depth: 0.62, fork: 0.4, dorsal: 2.2, dorsalLen: 0.35,
+    pect: 0.7, snout: 1.3, tailLen: 1.15, anal: 0.6, scale: 0.7,
+  },
+  // Blade-thin, very deep, very short — a keel with eyes.
+  hatchetfish: {
+    elong: 0.68, depth: 1.6, fork: 0.3, dorsal: 1.4, dorsalLen: 0.5,
+    pect: 1.1, snout: 0.5, tailLen: 0.5, width: 0.45,
+    anal: 1.0, analLen: 1.2, scale: 0.4,
+  },
+  // A small plain fish IS a defensible lanternfish; the preset mostly exists
+  // to shrink it so it stops being bit-identical to its neighbours.
+  lanternfish: {
+    elong: 1.0, depth: 0.85, fork: 0.8, dorsal: 0.9, dorsalLen: 0.8,
+    pect: 0.8, snout: 0.75, tailLen: 0.9, anal: 0.7, scale: 0.35,
+  },
+  // The clear dome over the tubular eyes: a blunt stub of a body with a big
+  // head SWELLING (melon 0.85) — nothing else in the axis set can bulge.
+  barreleye: {
+    elong: 0.8, depth: 1.15, fork: 0.2, dorsal: 0.7, dorsalLen: 0.9,
+    pect: 1.4, snout: 0.35, snoutPow: 0.4, tailLen: 0.7,
+    melon: 0.85, anal: 0.6, scale: 0.42,
+  },
+  // Deep-bodied little fish with the sub-ocular lamp (see ocean-data.json).
+  flashlightfish: {
+    elong: 0.85, depth: 1.25, fork: 0.6, dorsal: 1.1, dorsalLen: 0.9,
+    pect: 1.0, snout: 0.6, tailLen: 0.8, anal: 0.8, scale: 0.5,
+  },
+  // The stilts. Three filaments reaching down from the belly and the lower
+  // caudal — the fin set proper cannot express a stilt at all.
+  tripodfish: {
+    elong: 1.15, depth: 0.75, fork: 0.5, dorsal: 0.9, dorsalLen: 0.8,
+    pect: 2.4, snout: 0.9, tailLen: 1.3, anal: 0.55,
+    filN: 3, filLen: 0.48, filFrac: 0.62, filDir: [-0.3, -0.95, 0],
+    filArc: 0.1, filSpread: 0.33, filBulb: 0, filRad: 0.5,
+    scale: 0.5,
   },
 };
 
@@ -134,12 +267,28 @@ export function makeFish(seed, opts = {}) {
   const nPv = opts.pectoralRows ?? 9; //           rows across the chord
   const nCu = opts.caudalRays ?? 14; //   caudal: rays across the fork (v-dir)
   const nCv = opts.caudalRows ?? 12; //           rows back from the peduncle
+  // v3.8: the anal fin, the mirror of the dorsal below the belly. Coarser than
+  // the dorsal (it is smaller on almost every fish) so the +84 dots stay cheap.
+  const nAu = opts.analSpan ?? 14;
+  const nAv = opts.analRows ?? 6;
   const dorsalCount = nDu * nDv;
   const pectCount = 2 * nPu * nPv;
   const caudCount = nCu * nCv;
-  const count = bodyCount + dorsalCount + pectCount + caudCount; // 1880 default
-  // NOTE: count is identical for every morph — morphs change dimensions, not
-  // dot counts, so the RNG draw structure below stays fixed (spec §8).
+  const analCount = nAu * nAv;
+  // ---- preset resolution happens HERE, before any RNG draw, because the
+  // FILAMENT part exists only for the morphs that need one and therefore
+  // changes `count`. This is safe for determinism: the preset is a pure
+  // function of (opts.morph, seed) with no RNG involvement, so the same seed
+  // still produces a bit-identical creature; and a generic (morph null) fish
+  // allocates no filament block at all, so it pays nothing for the feature.
+  const preset = opts.morph ?? MORPH_BY_SEED.get(seed >>> 0) ?? null;
+  const nFil = Math.max(0, Math.min(4, Math.round(preset?.filN ?? 0)));
+  const nFu = opts.filSegs ?? 16; //     filament: stations along the strand
+  const nFv = opts.filRing ?? 4; //                dots per ring (thin tube)
+  const filCount = nFil * nFu * nFv;
+  const count = bodyCount + dorsalCount + pectCount + caudCount + analCount + filCount;
+  // NOTE: apart from the optional filament block, count is identical for every
+  // morph — morphs change dimensions, not dot counts (spec §8).
   const bodyLen0 = opts.bodyLength ?? 3.0;
   const baseRadius0 = opts.radius ?? 0.46; // vertical half-height (deep body)
   // Arc samples stay at v3.1's 200 (spec §6). Verified shape-neutral at the new
@@ -184,9 +333,7 @@ export function makeFish(seed, opts = {}) {
   const snoutJ = 0.7 + 0.8 * rng(); //                    draw: snout profile
   // ---- end frozen draw order ----
 
-  // preset resolution: explicit opts.morph wins; else the seed itself may BE
-  // a named species (board path passes only the seed); else pure seed morphs
-  const preset = opts.morph ?? MORPH_BY_SEED.get(seed >>> 0) ?? null;
+  // (preset was resolved above, before `count` — see the note there)
   const M = {
     elong: preset?.elong ?? elongJ,
     depth: preset?.depth ?? depthJ,
@@ -202,7 +349,20 @@ export function makeFish(seed, opts = {}) {
     tailSpan: preset?.tailSpan ?? 1,
     snoutPow: preset?.snoutPow ?? 1,
     width: preset?.width ?? 1,
+    // v3.8 axes
+    anal: preset?.anal ?? 0.5,
+    analLen: preset?.analLen ?? (preset?.dorsalLen ?? 1),
+    melon: preset?.melon ?? 0,
+    rayed: preset?.rayed ?? 0,
   };
+  // filament statics (only meaningful when nFil > 0)
+  const filDir = preset?.filDir ?? [0, 1, 0];
+  const filLenF = preset?.filLen ?? 0.5;
+  const filFrac = preset?.filFrac ?? 0.12;
+  const filArc = preset?.filArc ?? 0;
+  const filSpread = preset?.filSpread ?? 0;
+  const filBulb = preset?.filBulb ?? 0;
+  const filRadF = preset?.filRad ?? 1;
   // morphed dimensions; elongation trades girth for length. The uniform norm
   // shrink keeps nose→caudal-tip inside the registry bounding sphere
   // (boundR 2.6, spec §10) without distorting the morph's proportions.
@@ -211,10 +371,13 @@ export function makeFish(seed, opts = {}) {
   const norm = Math.min(1, 2.28 / (bodyLen * (0.5 + 0.252 * M.tailLen)));
   bodyLen *= norm;
   baseRadius *= norm;
-  // lateral compression: deep-bodied morphs get proportionally flatter.
-  // width lifts it back toward round (1) for cetaceans — a whale is a tube,
-  // not a slab. width 1 = the v3.2 value exactly.
-  const WF = (0.45 / Math.sqrt(Math.max(M.depth, 1))) * M.width;
+  // Lateral compression. v3.8 fix: this was 0.45/√depth, which meant a deeper
+  // body came out ABSOLUTELY WIDER (rz = WF·ry grew as ry/√depth ∝ √depth) —
+  // so angelfish/bluetang read head-on as swollen almonds instead of plates.
+  // Dividing by depth outright makes rz independent of depth: lateral
+  // compression is now absolute, and `width` is the only thing that fattens a
+  // section. depth ≤ 1 morphs (shark, tuna, minnow, marlin…) are untouched.
+  const WF = (0.45 / Math.max(M.depth, 1)) * M.width;
   // ---- plane rotations (the cetacean axes). Both are rigid rotations about
   // the body axis, so nothing below needs a special case: the caudal sheet is
   // built in a rotated {Vc,Hc} frame (Hc = T×Vc keeps the handedness, so the
@@ -254,7 +417,19 @@ export function makeFish(seed, opts = {}) {
     const f = i / (ringCount - 1);
     const base = Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.04 + 0.02)), 0.8);
     const nose = 0.05 + 0.95 * Math.pow(Math.min(1, f / hL), hPow);
-    prof[i] = base * nose;
+    // v3.8 melon: a LOCAL swelling just behind the nose. `snout` and `snoutPow`
+    // can only make the head taper sharper or blunter — both are monotone, so
+    // neither can produce a forehead that bulges wider than the body behind
+    // it. A gaussian bump on prof[] can, and that bulge is exactly what a
+    // beluga's melon, a barreleye's clear dome and a mahi's square forehead
+    // are. Capped at 1.55 so the bounding sphere still holds.
+    let p = base * nose;
+    if (M.melon > 0) {
+      const z = (f - 0.14) / 0.115;
+      p *= 1 + M.melon * 0.62 * Math.exp(-z * z);
+      if (p > 1.55) p = 1.55;
+    }
+    prof[i] = p;
     rNom[i] = baseRadius * prof[i];
   }
   const rEffY = new Float32Array(ringCount);
@@ -304,29 +479,70 @@ export function makeFish(seed, opts = {}) {
   const FLOW = 0.7 + 0.3 * M.tailLen; //   long tails flex more ("flowy")
   const SWEEP_C = Math.cos(0.6); // pectoral sweep-back ~35°
   const SWEEP_S = Math.sin(0.6);
-  // dorsal base maps 1:1 onto consecutive body stations starting at dor0
-  const dor0 = Math.min(Math.round(0.3 * (ringCount - 1)), ringCount - 1 - nDu);
+  const HA = 0.09 * bodyLen * M.anal; // anal (belly) fin max height
+  // v3.8: a long sail must also START further forward and SPAN more of the
+  // back. The dorsal grid maps onto body stations with a stride, so a
+  // dorsalLen-1.8 sailfish covers ~70% of the body instead of the fixed 35%
+  // the 1:1 mapping allowed. stride 1 = the legacy mapping exactly.
+  const strideD = M.dorsalLen >= 1.45 ? 2 : 1;
+  const dor0 = Math.min(
+    Math.max(0, Math.round((0.3 - 0.16 * Math.max(M.dorsalLen - 1, 0)) * (ringCount - 1))),
+    ringCount - 1 - (nDu - 1) * strideD,
+  );
+  const strideA = M.analLen >= 1.45 ? 2 : 1;
+  const ana0 = Math.min(
+    Math.max(0, Math.round((0.5 - 0.13 * Math.max(M.analLen - 1, 0)) * (ringCount - 1))),
+    ringCount - 1 - (nAu - 1) * strideA,
+  );
   // pectoral attach: behind the rostrum on long-snouted morphs
   const iP = Math.round((0.18 + 0.08 * Math.max(M.snout - 1, 0)) * (ringCount - 1));
   const iT = ringCount - 1; //                      caudal attach station
   const hD = new Float32Array(nDu); // sail height profile (peak leans forward)
   const envD = new Float32Array(nDu); // flex envelope (rear flexes more)
   const phiD = new Float32Array(nDu); // K1·u_body at each dorsal station
+  const dIdx = new Int32Array(nDu); //  dorsal station → body station
+  const rayD = new Float32Array(nDu); // static lateral splay (rayed morphs)
   // dorsalLen spreads (>1) or concentrates (<1, triangular) the sail along
   // its base; at dorsalLen 1 this is exactly the legacy profile
   const DL = M.dorsalLen;
+  // `rayed` turns the membrane into a fan of quills: alternate rays shorten
+  // and every ray fans laterally (folded into the fv² H-offset the sheet
+  // already carries, so the analytic ∂P/∂u × ∂P/∂v stays exact).
+  const RY = M.rayed;
   for (let m = 0; m < nDu; m++) {
     const fu = m / (nDu - 1);
     hD[m] =
-      HD * (0.1 + 0.15 * DL + 0.75 * Math.pow(Math.sin(Math.PI * Math.pow(fu, 0.75)), 1 / DL));
+      HD *
+      (0.1 + 0.15 * DL + 0.75 * Math.pow(Math.sin(Math.PI * Math.pow(fu, 0.75)), 1 / DL)) *
+      (1 - 0.34 * RY * (m & 1));
     envD[m] = 0.6 + 0.4 * fu;
-    phiD[m] = (K1 * (dor0 + m)) / (ringCount - 1);
+    dIdx[m] = dor0 + m * strideD;
+    phiD[m] = (K1 * dIdx[m]) / (ringCount - 1);
+    rayD[m] = RY * HD * 0.85 * (fu - 0.5);
+  }
+  const hA = new Float32Array(nAu);
+  const envA = new Float32Array(nAu);
+  const phiA = new Float32Array(nAu);
+  const aIdx = new Int32Array(nAu);
+  const AL = M.analLen;
+  for (let m = 0; m < nAu; m++) {
+    const fu = m / (nAu - 1);
+    hA[m] =
+      HA * (0.1 + 0.15 * AL + 0.75 * Math.pow(Math.sin(Math.PI * Math.pow(fu, 0.75)), 1 / AL));
+    envA[m] = 0.6 + 0.4 * fu;
+    aIdx[m] = ana0 + m * strideA;
+    phiA[m] = (K1 * aIdx[m]) / (ringCount - 1);
   }
   const dfuInv = nDu - 1; // 1/dfu
+  const afuInv = nAu - 1;
   const fvT = new Float32Array(nDv);
   for (let j = 0; j < nDv; j++) fvT[j] = (j + 1) / nDv;
+  const fvA = new Float32Array(nAv);
+  for (let j = 0; j < nAv; j++) fvA[j] = (j + 1) / nAv;
   const pvOff = new Float32Array(nPv); // chord offset: mostly trailing
   for (let n = 0; n < nPv; n++) pvOff[n] = n / (nPv - 1) - 0.35;
+  // rayed pectorals: collapse the chord so each span station is one quill
+  const PCH = 1 - 0.78 * RY;
   const cuV = new Float32Array(nCu); // caudal fork tables
   // length factor g(cu) = aC + bC·cu²: fork>0 → long at edges (forked/lunate,
   // fork 1 = legacy), fork 0 → truncate, fork<0 → rounded (middle longest).
@@ -341,9 +557,37 @@ export function makeFish(seed, opts = {}) {
     gC[k] = aC + bC * cu * cu;
     dgC[k] = 2 * bC * cu;
   }
-  // dorsal per-frame scratch (preallocated — spec §4)
+  // dorsal / anal per-frame scratch (preallocated — spec §4)
   const dorC = new Float32Array(nDu * 3);
   const dorDel = new Float32Array(nDu);
+  const anaC = new Float32Array(nAu * 3);
+  const anaDel = new Float32Array(nAu);
+
+  // ---- filament statics (illicium / stilts). Only built when nFil > 0.
+  const iF = Math.min(ringCount - 1, Math.max(0, Math.round(filFrac * (ringCount - 1))));
+  const filL = filLenF * bodyLen;
+  const filR0 = 0.016 * bodyLen * filRadF;
+  // unit base direction in the station's {T, V, H} frame
+  const fdN = 1 / Math.hypot(filDir[0], filDir[1], filDir[2] || 0) || 1;
+  const fdT = filDir[0] * fdN;
+  const fdV = filDir[1] * fdN;
+  const fdH = (filDir[2] || 0) * fdN;
+  const filU = new Float32Array(nFu); // arc parameter per station
+  const filRad = new Float32Array(nFu); // tube radius per station (+ terminal esca)
+  for (let i = 0; i < nFu; i++) {
+    const u = i / (nFu - 1);
+    filU[i] = u;
+    // thin strand with a bright bulb at the very end — the esca
+    const bulb = filBulb > 0 ? 1 + filBulb * 3.4 * Math.pow(Math.max(0, u - 0.86) / 0.14, 2) : 1;
+    filRad[i] = filR0 * (1 - 0.45 * u) * bulb;
+  }
+  const filCos = new Float32Array(nFv);
+  const filSin = new Float32Array(nFv);
+  for (let j = 0; j < nFv; j++) {
+    const a = (j * TAU) / nFv;
+    filCos[j] = Math.cos(a);
+    filSin[j] = Math.sin(a);
+  }
 
   function updateTargets(timeSec, sway, tempo, positions, normals) {
     const t = 2.6 * timeSec * tempo; // fish beat faster than eel (v2: 3× vs 2.1×)
@@ -462,21 +706,21 @@ export function makeFish(seed, opts = {}) {
     // normal = ∂P/∂fu × ∂P/∂fv (analytic in fv, station-table diffs in fu)
     const dAmp = 0.02 + 0.08 * relAmp;
     for (let m = 0; m < nDu; m++) {
-      const im = dor0 + m;
+      const im = dIdx[m];
       const oi = im * 3;
       const rb = 0.92 * rEffY[im];
       dorC[m * 3] = P[oi] + rb * Varr[oi];
       dorC[m * 3 + 1] = P[oi + 1] + rb * Varr[oi + 1];
       dorC[m * 3 + 2] = P[oi + 2] + rb * Varr[oi + 2];
-      dorDel[m] = dAmp * envD[m] * Math.sin(phiD[m] - cp1 - dorsalLag);
+      dorDel[m] = dAmp * envD[m] * Math.sin(phiD[m] - cp1 - dorsalLag) + rayD[m];
     }
     for (let m = 0; m < nDu; m++) {
       const ma = m > 0 ? m - 1 : 0;
       const mb = m < nDu - 1 ? m + 1 : m;
       const inv = dfuInv / (mb - ma);
-      const om = (dor0 + m) * 3;
-      const oa = (dor0 + ma) * 3;
-      const ob = (dor0 + mb) * 3;
+      const om = dIdx[m] * 3;
+      const oa = dIdx[ma] * 3;
+      const ob = dIdx[mb] * 3;
       const h = hD[m];
       const del = dorDel[m];
       const dh = (hD[mb] - hD[ma]) * inv;
@@ -504,6 +748,66 @@ export function makeFish(seed, opts = {}) {
         positions[o] = dorC[m * 3] + fv * hvx + fv2 * dhx;
         positions[o + 1] = dorC[m * 3 + 1] + fv * hvy + fv2 * dhy;
         positions[o + 2] = dorC[m * 3 + 2] + fv * hvz + fv2 * dhz;
+        const pux = e0x + fv * e1x + fv2 * e2x;
+        const puy = e0y + fv * e1y + fv2 * e2y;
+        const puz = e0z + fv * e1z + fv2 * e2z;
+        const pvx = hvx + 2 * fv * dhx;
+        const pvy = hvy + 2 * fv * dhy;
+        const pvz = hvz + 2 * fv * dhz;
+        let nx = puy * pvz - puz * pvy;
+        let ny = puz * pvx - pux * pvz;
+        let nz = pux * pvy - puy * pvx;
+        const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+        normals[o] = nx * il;
+        normals[o + 1] = ny * il;
+        normals[o + 2] = nz * il;
+      }
+    }
+    // ---- anal fin (sheet): the exact mirror of the dorsal, hung BELOW the
+    // belly (−V). Same P(fu,fv) = C(fu) + fv·h·(−V) + fv²·δ·H form, so the
+    // normal is the same analytic ∂P/∂fu × ∂P/∂fv (never an in-plane offset).
+    for (let m = 0; m < nAu; m++) {
+      const im = aIdx[m];
+      const oi = im * 3;
+      const rb = -0.92 * rEffY[im];
+      anaC[m * 3] = P[oi] + rb * Varr[oi];
+      anaC[m * 3 + 1] = P[oi + 1] + rb * Varr[oi + 1];
+      anaC[m * 3 + 2] = P[oi + 2] + rb * Varr[oi + 2];
+      anaDel[m] = dAmp * envA[m] * Math.sin(phiA[m] - cp1 - dorsalLag);
+    }
+    for (let m = 0; m < nAu; m++) {
+      const ma = m > 0 ? m - 1 : 0;
+      const mb = m < nAu - 1 ? m + 1 : m;
+      const inv = afuInv / (mb - ma);
+      const om = aIdx[m] * 3;
+      const oa = aIdx[ma] * 3;
+      const ob = aIdx[mb] * 3;
+      const h = -hA[m]; // downward
+      const del = anaDel[m];
+      const dh = -(hA[mb] - hA[ma]) * inv;
+      const dd = (anaDel[mb] - anaDel[ma]) * inv;
+      const e0x = (anaC[mb * 3] - anaC[ma * 3]) * inv;
+      const e0y = (anaC[mb * 3 + 1] - anaC[ma * 3 + 1]) * inv;
+      const e0z = (anaC[mb * 3 + 2] - anaC[ma * 3 + 2]) * inv;
+      const e1x = dh * Varr[om] + h * (Varr[ob] - Varr[oa]) * inv;
+      const e1y = dh * Varr[om + 1] + h * (Varr[ob + 1] - Varr[oa + 1]) * inv;
+      const e1z = dh * Varr[om + 2] + h * (Varr[ob + 2] - Varr[oa + 2]) * inv;
+      const e2x = dd * Harr[om] + del * (Harr[ob] - Harr[oa]) * inv;
+      const e2y = dd * Harr[om + 1] + del * (Harr[ob + 1] - Harr[oa + 1]) * inv;
+      const e2z = dd * Harr[om + 2] + del * (Harr[ob + 2] - Harr[oa + 2]) * inv;
+      const hvx = h * Varr[om];
+      const hvy = h * Varr[om + 1];
+      const hvz = h * Varr[om + 2];
+      const dhx = del * Harr[om];
+      const dhy = del * Harr[om + 1];
+      const dhz = del * Harr[om + 2];
+      for (let j = 0; j < nAv; j++, d++) {
+        const fv = fvA[j];
+        const fv2 = fv * fv;
+        const o = perm[d] * 3;
+        positions[o] = anaC[m * 3] + fv * hvx + fv2 * dhx;
+        positions[o + 1] = anaC[m * 3 + 1] + fv * hvy + fv2 * dhy;
+        positions[o + 2] = anaC[m * 3 + 2] + fv * hvz + fv2 * dhz;
         const pux = e0x + fv * e1x + fv2 * e2x;
         const puy = e0y + fv * e1y + fv2 * e2y;
         const puz = e0z + fv * e1z + fv2 * e2z;
@@ -559,7 +863,7 @@ export function makeFish(seed, opts = {}) {
         const sx = bx + SP * fm * dsx;
         const sy = by + SP * fm * dsy;
         const sz = bz + SP * fm * dsz;
-        const cm = CP * (1 - 0.55 * fm); // chord narrows to the tip
+        const cm = CP * PCH * (1 - 0.55 * fm); // chord narrows to the tip
         for (let n = 0; n < nPv; n++, d++) {
           const pc = pvOff[n] * cm;
           const o = perm[d] * 3;
@@ -638,6 +942,95 @@ export function makeFish(seed, opts = {}) {
         normals[o + 2] = nz * il;
       }
     }
+    // ---- filaments (TUBE class): the anglerfish illicium and the tripod
+    // fish's stilts. A thin strand leaving one body station along a fixed
+    // direction in that station's {T,V,H} frame, bent by a quadratic arc, with
+    // a slow sway so it is alive. Ring-offset normals in a per-station frame
+    // built from the strand tangent (never Frenet — the strand is short and
+    // the frame is rebuilt from the analytic tangent each station, so there is
+    // no transport to drift).
+    if (nFil > 0) {
+      const oFi = iF * 3;
+      const tX = T[oFi];
+      const tY = T[oFi + 1];
+      const tZ = T[oFi + 2];
+      const vX = Varr[oFi];
+      const vY = Varr[oFi + 1];
+      const vZ = Varr[oFi + 2];
+      const hX = Harr[oFi];
+      const hY = Harr[oFi + 1];
+      const hZ = Harr[oFi + 2];
+      const swayF = 0.09 * relAmp;
+      for (let k = 0; k < nFil; k++) {
+        const sk = nFil > 1 ? (2 * k) / (nFil - 1) - 1 : 0; // −1..1 across the set
+        const lat = filSpread * sk;
+        const wob = swayF * Math.sin(1.3 * t + flapPhase + k * 2.1);
+        // direction (unit-ish) with the per-filament lateral offset folded in
+        let dT = fdT;
+        let dV = fdV;
+        let dH = fdH + lat;
+        const dn = 1 / Math.sqrt(dT * dT + dV * dV + dH * dH);
+        dT *= dn;
+        dV *= dn;
+        dH *= dn;
+        // arc: bends toward +T (filArc<0 arcs forward over the head)
+        const aT = filArc + wob;
+        const bx0 = P[oFi] + rEffY[iF] * (dV * vX + dH * hX) * 0.85;
+        const by0 = P[oFi + 1] + rEffY[iF] * (dV * vY + dH * hY) * 0.85;
+        const bz0 = P[oFi + 2] + rEffY[iF] * (dV * vZ + dH * hZ) * 0.85;
+        for (let i = 0; i < nFu; i++) {
+          const u = filU[i];
+          const su = filL * u;
+          const sa = filL * aT * u * u;
+          // centreline C(u) = base + s(u)·d + a(u)·T
+          const cx = bx0 + su * (dT * tX + dV * vX + dH * hX) + sa * tX;
+          const cy = by0 + su * (dT * tY + dV * vY + dH * hY) + sa * tY;
+          const cz = bz0 + su * (dT * tZ + dV * vZ + dH * hZ) + sa * tZ;
+          // analytic tangent C′(u) = L·d + 2·L·aT·u·T, normalized
+          const g2 = 2 * filL * aT * u;
+          let ex = filL * (dT * tX + dV * vX + dH * hX) + g2 * tX;
+          let ey = filL * (dT * tY + dV * vY + dH * hY) + g2 * tY;
+          let ez = filL * (dT * tZ + dV * vZ + dH * hZ) + g2 * tZ;
+          const el = 1 / Math.sqrt(ex * ex + ey * ey + ez * ez);
+          ex *= el;
+          ey *= el;
+          ez *= el;
+          // ring basis: e2 = normalize(H − (H·e)e), e3 = e × e2
+          let f2x = hX - (hX * ex + hY * ey + hZ * ez) * ex;
+          let f2y = hY - (hX * ex + hY * ey + hZ * ez) * ey;
+          let f2z = hZ - (hX * ex + hY * ey + hZ * ez) * ez;
+          let l2 = f2x * f2x + f2y * f2y + f2z * f2z;
+          if (l2 < 1e-8) {
+            f2x = vX;
+            f2y = vY;
+            f2z = vZ;
+            l2 = 1;
+          }
+          const il2 = 1 / Math.sqrt(l2);
+          f2x *= il2;
+          f2y *= il2;
+          f2z *= il2;
+          const f3x = ey * f2z - ez * f2y;
+          const f3y = ez * f2x - ex * f2z;
+          const f3z = ex * f2y - ey * f2x;
+          const r = filRad[i];
+          for (let j = 0; j < nFv; j++, d++) {
+            const c = filCos[j];
+            const s = filSin[j];
+            const dx = c * f2x + s * f3x;
+            const dy = c * f2y + s * f3y;
+            const dz = c * f2z + s * f3z;
+            const o = perm[d] * 3;
+            positions[o] = cx + r * dx;
+            positions[o + 1] = cy + r * dy;
+            positions[o + 2] = cz + r * dz;
+            normals[o] = dx;
+            normals[o + 1] = dy;
+            normals[o + 2] = dz;
+          }
+        }
+      }
+    }
   }
 
   function init({ aSize, aTw, aRing }) {
@@ -653,10 +1046,21 @@ export function makeFish(seed, opts = {}) {
       }
     }
     for (let m = 0; m < nDu; m++) {
-      const rf = (dor0 + m) / (ringCount - 1);
+      const rf = dIdx[m] / (ringCount - 1);
       for (let j = 0; j < nDv; j++, d++) {
         const sl = perm[d];
-        aSize[sl] = 0.6 * (1 - 0.35 * fvT[j]) * sizeJit[d];
+        // rayed fins need their quills to CARRY: a membrane can be dim, a
+        // spine cannot, or it disappears between its neighbours.
+        aSize[sl] = (0.6 + 0.35 * RY) * (1 - 0.35 * (1 - RY) * fvT[j]) * sizeJit[d];
+        aTw[sl] = twPhase[d];
+        aRing[sl] = rf;
+      }
+    }
+    for (let m = 0; m < nAu; m++) {
+      const rf = aIdx[m] / (ringCount - 1);
+      for (let j = 0; j < nAv; j++, d++) {
+        const sl = perm[d];
+        aSize[sl] = 0.6 * (1 - 0.35 * fvA[j]) * sizeJit[d];
         aTw[sl] = twPhase[d];
         aRing[sl] = rf;
       }
@@ -667,7 +1071,7 @@ export function makeFish(seed, opts = {}) {
         const fm = m / (nPu - 1);
         for (let n = 0; n < nPv; n++, d++) {
           const sl = perm[d];
-          aSize[sl] = 0.55 * (1 - 0.3 * fm) * sizeJit[d];
+          aSize[sl] = (0.55 + 0.35 * RY) * (1 - 0.3 * fm) * sizeJit[d];
           aTw[sl] = twPhase[d];
           aRing[sl] = rfP;
         }
@@ -680,6 +1084,20 @@ export function makeFish(seed, opts = {}) {
         aSize[sl] = (0.58 - 0.22 * cv) * sizeJit[d];
         aTw[sl] = twPhase[d];
         aRing[sl] = 0.92 + 0.08 * cv; // caudal rows continue past the body tip
+      }
+    }
+    const rfF = iF / (ringCount - 1);
+    for (let k = 0; k < nFil; k++) {
+      for (let i = 0; i < nFu; i++) {
+        const u = filU[i];
+        // the esca is the brightest dot class on the animal — it is the lure
+        const sz = 0.7 + (filBulb > 0 ? 1.5 * Math.pow(Math.max(0, u - 0.86) / 0.14, 2) : 0);
+        for (let j = 0; j < nFv; j++, d++) {
+          const sl = perm[d];
+          aSize[sl] = sz * sizeJit[d];
+          aTw[sl] = twPhase[d];
+          aRing[sl] = rfF;
+        }
       }
     }
   }

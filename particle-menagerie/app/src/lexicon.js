@@ -32,6 +32,11 @@
 import { hashName } from './geometry/rng.js';
 import { bandFor, bandKeyFor, pickDepth, pickTransect } from './depthbands.js';
 import { FISH_MORPHS } from './geometry/fish.js';
+import { EEL_MORPHS, eelMorphFor } from './geometry/eel.js';
+import { OCTO_MORPHS, octoMorphFor } from './geometry/octo.js';
+import { MEDUSA_MORPHS, medusaMorphFor } from './geometry/medusa.js';
+import { STAR_MORPHS, starMorphFor } from './geometry/star.js';
+import { AMORPH_MORPHS, amorphMorphFor } from './geometry/amorph.js';
 import { KELP_MORPHS } from './geometry/kelp.js';
 import { BLOOM_MORPHS } from './geometry/bloom.js';
 import { TETRAPOD_MORPHS, tetrapodMorphFor } from './geometry/tetrapod.js';
@@ -285,6 +290,13 @@ export function resolveName(raw) {
       FISH_MORPHS[w] || FISH_MORPHS[ws] ||
       KELP_MORPHS[w] || KELP_MORPHS[ws] ||
       BLOOM_MORPHS[w] || BLOOM_MORPHS[ws] ||
+      // v3.8: the archetypes that gained a preset table. Same contract as
+      // FISH_MORPHS — a preset overrides VALUES only, never an RNG draw.
+      EEL_MORPHS[w] || EEL_MORPHS[ws] || eelMorphFor(w) || eelMorphFor(ws) ||
+      OCTO_MORPHS[w] || OCTO_MORPHS[ws] || octoMorphFor(w) || octoMorphFor(ws) ||
+      MEDUSA_MORPHS[w] || MEDUSA_MORPHS[ws] || medusaMorphFor(w) || medusaMorphFor(ws) ||
+      STAR_MORPHS[w] || STAR_MORPHS[ws] || starMorphFor(w) || starMorphFor(ws) ||
+      AMORPH_MORPHS[w] || AMORPH_MORPHS[ws] || amorphMorphFor(w) || amorphMorphFor(ws) ||
       // v3.7: tetrapodMorphFor also resolves the aliases ("hawksbill" ->
       // the turtle morph, "pinniped" -> seal), which is why it is called
       // rather than TETRAPOD_MORPHS being indexed directly.

@@ -2,11 +2,64 @@
 // Contract: geometry-spec.md. LOCAL space (§10); ring-offset normals with
 // taper tilt (§ normals table); zero allocation in updateTargets (§4).
 
-import { mulberry32 } from './rng.js';
+import { mulberry32, hashName } from './rng.js';
 import { createSpine, makeRingTables, KAPPA_R_MAX, RING_SHRINK, TAU } from './spine.js';
 
 // w2/w1 = √2·φ — incommensurate, so the coil never repeats (spec §1)
 const W_RATIO = Math.SQRT2 * 1.618033988749895;
+
+// ---- named-species morph presets (v3.8) -----------------------------------
+// eel.js had NO preset system at all, so every long soft body — moray,
+// dragonfish, gulper eel, sea cucumber — was byte-identical in shape and
+// differed only by sway phase. These axes are the ones that separate them:
+//   len       body length ×          girth     tube radius ×
+//   headBulk  anterior SWELLING, added over the first `headSpan` of the body.
+//             The gulper eel is almost entirely jaw ("a loose net bigger than
+//             the rest of its body") and nothing in the plain taper could
+//             express a flared head.
+//   headSpan  how far back the swelling reaches (fraction of body)
+//   taper     tail taper exponent. The stock 0.75 drives the radius to zero —
+//             correct for an eel, WRONG for a sea cucumber, which is a tube of
+//             near-constant thickness with two rounded ends (taper ≈ 0.12).
+//   undulate  traveling-wave amplitude ×. A cucumber creeps; it does not
+//             undulate, so its waves are cut to a quarter.
+//   scale/tempo/speed  world hints for lexicon.js; ignored here.
+export const EEL_MORPHS = {
+  // A ribbon with a heavy head and a whip tail; the red barbel is biolum's job
+  dragonfish: {
+    len: 0.95, girth: 0.6, headBulk: 0.9, headSpan: 0.1, taper: 0.95,
+    undulate: 1.15, scale: 0.55, tempo: 1.1,
+  },
+  // Mostly jaw. headBulk 2.6 over the first 13% is the whole animal.
+  gulpereel: {
+    len: 0.95, girth: 0.85, headBulk: 2.6, headSpan: 0.13, taper: 1.6,
+    undulate: 0.95, scale: 0.85, tempo: 0.8, speed: 0.7,
+  },
+  // A stubby sausage of near-constant thickness with both ends rounded.
+  seacucumber: {
+    len: 0.42, girth: 1.55, headBulk: 0.12, headSpan: 0.3, taper: 0.12,
+    undulate: 0.22, scale: 0.7, tempo: 0.35, speed: 0.3,
+  },
+};
+const EEL_ALIASES = {
+  dragonfish: ['dragonfish', 'black dragonfish', 'blackdragonfish'],
+  gulpereel: ['gulpereel', 'gulper eel', 'gulper', 'pelicaneel', 'pelican eel'],
+  seacucumber: ['seacucumber', 'sea cucumber', 'cucumber', 'holothurian'],
+};
+const MORPH_BY_SEED = new Map();
+for (const k of Object.keys(EEL_MORPHS)) {
+  for (const n of EEL_ALIASES[k] || [k]) {
+    MORPH_BY_SEED.set(hashName(n), EEL_MORPHS[k]);
+    MORPH_BY_SEED.set(hashName(n + 's'), EEL_MORPHS[k]);
+  }
+}
+/** Preset lookup by name, for lexicon.js (mirrors FISH_MORPHS[word] usage). */
+export function eelMorphFor(word) {
+  if (!word) return null;
+  const w = String(word).toLowerCase().trim();
+  if (Object.prototype.hasOwnProperty.call(EEL_MORPHS, w)) return EEL_MORPHS[w];
+  return MORPH_BY_SEED.get(hashName(w)) || null;
+}
 
 export function makeEel(seed, opts = {}) {
   // v3.2 density uplift: 52×24 (1248) → 80×32 (2560), a uniform ~1.5× linear
@@ -19,8 +72,19 @@ export function makeEel(seed, opts = {}) {
   const ringCount = opts.ringCount ?? 80;
   const dotsPerRing = opts.dotsPerRing ?? 32;
   const count = ringCount * dotsPerRing;
-  const bodyLen = opts.bodyLength ?? 6.0;
-  const baseRadius = opts.radius ?? 0.4;
+  // preset resolution (pure function of opts.morph / seed — no RNG, so the
+  // frozen draw order below is untouched and determinism is unaffected)
+  const preset = opts.morph ?? MORPH_BY_SEED.get(seed >>> 0) ?? null;
+  const M = {
+    len: preset?.len ?? 1,
+    girth: preset?.girth ?? 1,
+    headBulk: preset?.headBulk ?? 0,
+    headSpan: preset?.headSpan ?? 0.12,
+    taper: preset?.taper ?? 0.75,
+    undulate: preset?.undulate ?? 1,
+  };
+  const bodyLen = (opts.bodyLength ?? 6.0) * M.len;
+  const baseRadius = (opts.radius ?? 0.4) * M.girth;
   // Arc samples stay at v3.1's 200 (spec §6's "~200"). The worry was that κ is
   // differenced over the now-finer station pitch, so a starved sampler would
   // make κ noisy and the §5 sway clamp bite harder — a denser eel that sways
@@ -53,13 +117,21 @@ export function makeEel(seed, opts = {}) {
   const spine = createSpine(ringCount, sampleCount);
   const { cosT, sinT } = makeRingTables(ringCount, dotsPerRing, twistPerRing);
 
-  // taper: blunt head, full by ~1/8 body, tapers to a point at the tail
+  // taper: blunt head, full by ~1/8 body, tapers to a point at the tail.
+  // v3.8: `taper` exposes the tail exponent (0.75 = the eel identity; 0.12 is
+  // a sea cucumber's near-uniform tube) and `headBulk` adds a gaussian
+  // anterior swelling (a gulper eel's jaw).
   const prof = new Float32Array(ringCount);
   const rNom = new Float32Array(ringCount);
   for (let i = 0; i < ringCount; i++) {
     const f = i / (ringCount - 1);
-    prof[i] = Math.sqrt(Math.min(1, 0.25 + 6 * f)) * Math.pow(1 - f, 0.75);
-    rNom[i] = baseRadius * prof[i];
+    let p = Math.sqrt(Math.min(1, 0.25 + 6 * f)) * Math.pow(1 - f, M.taper);
+    if (M.headBulk > 0) {
+      const z = f / M.headSpan;
+      p *= 1 + M.headBulk * Math.exp(-z * z);
+    }
+    prof[i] = p;
+    rNom[i] = baseRadius * p;
   }
   const rEff = new Float32Array(ringCount);
   const drds = new Float32Array(ringCount);
@@ -68,8 +140,8 @@ export function makeEel(seed, opts = {}) {
   // two incommensurate traveling waves (spec §1); non-harmonic spatial freqs
   const K1 = 4.6;
   const K2 = 2.9;
-  const A1 = 0.3 * (bodyLen / 6);
-  const A2 = 0.22 * (bodyLen / 6);
+  const A1 = 0.3 * (bodyLen / 6) * M.undulate;
+  const A2 = 0.22 * (bodyLen / 6) * M.undulate;
   let ca1 = 0;
   let ca2 = 0;
   let cp1 = 0;

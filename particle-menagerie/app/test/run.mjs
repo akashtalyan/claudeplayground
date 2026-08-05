@@ -148,6 +148,60 @@ async function main() {
           [buf.toString('base64'), region ?? 'full'],
         );
 
+      // Two PNGs, same size, compared in the browser's decoder like pngStats.
+      // Returns how much of the central box actually MOVED between them and
+      // where the light is in each — the pair a "does it stroke, or is it a
+      // pose?" question needs: a stroke changes the pixels while leaving the
+      // body where it was.
+      const pngPair = (bufA, bufB) =>
+        page.evaluate(
+          async ([a64, b64]) => {
+            const dec = async (b64) => {
+              const img = new Image();
+              img.src = 'data:image/png;base64,' + b64;
+              await img.decode();
+              const c = document.createElement('canvas');
+              c.width = img.width;
+              c.height = img.height;
+              const g = c.getContext('2d', { willReadFrequently: true });
+              g.drawImage(img, 0, 0);
+              const x = img.width >> 2, y = img.height >> 2;
+              const w = img.width >> 1, h = img.height >> 1;
+              return { d: g.getImageData(x, y, w, h).data, w, h };
+            };
+            const A = await dec(a64);
+            const B = await dec(b64);
+            let changed = 0;
+            let sumAbs = 0;
+            const cen = (P) => {
+              let sx = 0, sy = 0, s = 0;
+              for (let i = 0, p = 0; i < P.d.length; i += 4, p++) {
+                const l = (P.d[i] + P.d[i + 1] + P.d[i + 2]) / 3;
+                if (l <= 25) continue;
+                sx += (p % P.w) * l; sy += ((p / P.w) | 0) * l; s += l;
+              }
+              return s > 0 ? { x: sx / s, y: sy / s, mass: s } : { x: 0, y: 0, mass: 0 };
+            };
+            for (let i = 0; i < A.d.length; i += 4) {
+              const la = (A.d[i] + A.d[i + 1] + A.d[i + 2]) / 3;
+              const lb = (B.d[i] + B.d[i + 1] + B.d[i + 2]) / 3;
+              const dd = Math.abs(la - lb);
+              sumAbs += dd;
+              if (dd > 12) changed++;
+            }
+            const px = A.d.length / 4;
+            const ca = cen(A);
+            const cb = cen(B);
+            return {
+              changedFrac: changed / px,
+              meanAbsDiff: sumAbs / px,
+              centroidShiftPx: Math.hypot(ca.x - cb.x, ca.y - cb.y),
+              massRatio: cb.mass > 0 ? ca.mass / cb.mass : 0,
+            };
+          },
+          [bufA.toString('base64'), bufB.toString('base64')],
+        );
+
       const scenario = async (name, fn) => {
         currentScenario = name;
         const s = { pass: true, artifacts: [] };
@@ -298,10 +352,14 @@ async function main() {
 
       // ---- 10. per-archetype solo shots ----------------------------------
       await scenario('solo', async (s) => {
+        // EVERY archetype in creatures.js REGISTRY, which is what makes this
+        // the per-archetype rendered-brightness floor. `tetrapod` was left out
+        // when it shipped in v3.7, so the one archetype with no v3.6 history
+        // was also the one archetype nothing rendered.
         const names = {
           eel: 'eel', medusa: 'jellyfish', fish: 'fish', ray: 'manta ray',
           octo: 'octopus', star: 'starfish', amorph: 'plankton',
-          bloom: 'lotus', kelp: 'kelp',
+          bloom: 'lotus', kelp: 'kelp', tetrapod: 'sea turtle',
         };
         await load('fixedstep=1&board=eel');
         s.shots = [];
@@ -316,6 +374,132 @@ async function main() {
             console.error(`solo-${arch}: central maxChannel ${st.maxChannel} — creature missing or too dark`);
           }
         }
+      });
+
+      // ---- 10b. v3.7 TETRAPODS: does a turtle read as a turtle, and do the
+      // flippers STROKE? The archetype shipped with no rendered coverage at
+      // all — its only assertion was that the word routes to it. Two frames a
+      // quarter-second apart, in the museum pose (speed 0), so a stroke is
+      // separable from a translation: the dots must MOVE while the body stays
+      // where it is.
+      await scenario('tetrapod', async (s) => {
+        await load('fixedstep=1&board=eel');
+        s.subjects = [];
+        for (const [tag, name] of [['turtle', 'sea turtle'], ['penguin', 'emperor penguin']]) {
+          await page.evaluate((n) => window.__menagerie.test.solo(n), name);
+          await step(200); // formation complete
+          const c = (await page.evaluate(() => window.__menagerie.test.creatureDepths()))[0];
+          if (!c) throw new Error(`tetrapod: ${name} did not spawn`);
+          const a = await shot(`tetrapod-${tag}-a.png`);
+          await step(15); // 0.25 s of sim — a quarter of a flipper cycle
+          const b = await shot(`tetrapod-${tag}-b.png`);
+          const sa = await pngStats(a, 'central');
+          const sb = await pngStats(b, 'central');
+          const d = await pngPair(a, b);
+          const rec = {
+            name, arch: c.arch ?? null, kind: c.kind, m: Math.round(c.depthM),
+            maxChannel: sa.maxChannel, blownFrac: sa.blownFrac,
+            changedFrac: +d.changedFrac.toFixed(4),
+            centroidShiftPx: +d.centroidShiftPx.toFixed(2),
+            massRatio: +d.massRatio.toFixed(3),
+          };
+          s.subjects.push(rec);
+          // it rendered at all, and it rendered as dots rather than as a lamp
+          if (sa.maxChannel < 40) throw new Error(`tetrapod-${tag}: central maxChannel ${sa.maxChannel} — nothing there`);
+          if (sa.blownFrac > 0.08 || sb.blownFrac > 0.08) {
+            throw new Error(`tetrapod-${tag}: ${(Math.max(sa.blownFrac, sb.blownFrac) * 100).toFixed(2)}% blown (bound 8%)`);
+          }
+          // THE STROKE: measurable motion between the two frames...
+          if (!(d.changedFrac > 0.004)) {
+            throw new Error(`tetrapod-${tag}: only ${(d.changedFrac * 100).toFixed(2)}% of the frame moved in 0.25 s — the limbs are a pose, not a stroke`);
+          }
+          // ...that is a limb cycle and not the whole animal sliding past
+          if (!(d.centroidShiftPx < 12)) {
+            throw new Error(`tetrapod-${tag}: the body moved ${d.centroidShiftPx.toFixed(1)} px in 0.25 s — that is swimming past, not stroking`);
+          }
+          // and the body did not gain or lose itself between the two frames
+          if (!(d.massRatio > 0.72 && d.massRatio < 1.4)) {
+            throw new Error(`tetrapod-${tag}: lit mass changed ${d.massRatio.toFixed(2)}x between adjacent frames`);
+          }
+        }
+      });
+
+      // ---- 10c. v3.7 BIOLUMINESCENCE: the light an animal MAKES ----------
+      // Nothing in v3.7 ever rendered a lit creature: every `bio` reference in
+      // this file was either a weather preset or a data-flag assertion, so
+      // "does it read as making light, and does it blow out" had no evidence
+      // either way. This shoots each pattern mode at the depth its own species
+      // actually lives at, twice — once with the layer's documented global
+      // dimmer at whatever the water gives it, once with that dimmer forced to
+      // 0, which is bit-for-bit the v3.6 creature. The lit species must differ
+      // between the two; the researched non-luminous control (barreleye, which
+      // watches other animals' light and makes none) must not.
+      await scenario('bio', async (s) => {
+        const CASES = [
+          // tag, name, expected pattern
+          ['rows', 'lanternfish', 'photophore rows'],
+          ['rowsdeep', 'bristlemouth', 'photophore rows'],
+          ['lure', 'anglerfish', 'lure'],
+          ['pulse', 'atolla jellyfish', 'pulse'],
+          ['control', 'barreleye', 'dark'],
+        ];
+        const shoot = async (gain) => {
+          await load('fixedstep=1&board=eel');
+          await page.waitForFunction(() => window.__menagerie.column);
+          await page.evaluate(() => window.__menagerie.ui.forceAmbient(true));
+          await page.waitForTimeout(1400);
+          if (gain != null) await page.evaluate((g) => window.__menagerie.test.setBioGain(g), gain);
+          const out = {};
+          for (const [tag, name] of CASES) {
+            await page.evaluate((n) => window.__menagerie.test.solo(n), name);
+            await step(220);
+            const buf = await shot(`bio-${tag}${gain == null ? '' : '-off'}.png`);
+            const c = (await page.evaluate(() => window.__menagerie.test.creatureDepths()))[0];
+            out[tag] = { buf, stats: await pngStats(buf, 'central'), c };
+          }
+          return out;
+        };
+        const on = await shoot(null);
+        const off = await shoot(0);
+        s.subjects = [];
+        for (const [tag, name, pattern] of CASES) {
+          const A = on[tag];
+          const B = off[tag];
+          if (!A.c) throw new Error(`bio: ${name} did not spawn`);
+          const d = await pngPair(A.buf, B.buf);
+          const rec = {
+            name, m: Math.round(A.c.depthM), lit: A.c.lit, pattern: A.c.bioPattern,
+            maxChannel: A.stats.maxChannel, blownFrac: A.stats.blownFrac,
+            meanLuma: +A.stats.meanLuma.toFixed(2),
+            deltaMeanLuma: +(A.stats.meanLuma - B.stats.meanLuma).toFixed(3),
+            changedFrac: +d.changedFrac.toFixed(4),
+          };
+          s.subjects.push(rec);
+          if (A.c.bioPattern !== pattern) throw new Error(`bio: ${name} renders pattern '${A.c.bioPattern}', expected '${pattern}'`);
+          // it is DARK down there, which is the whole premise of the layer
+          if (tag !== 'rows' && !(A.c.depthM > 300)) {
+            throw new Error(`bio: ${name} placed at ${A.c.depthM.toFixed(0)} m — this shot has to be in the dark`);
+          }
+          if (A.stats.maxChannel < 40) throw new Error(`bio-${tag}: central maxChannel ${A.stats.maxChannel} — nothing rendered`);
+          // "intense against black" is a budget, not a licence: the same
+          // additive bound the rest of the app lives under.
+          if (A.stats.blownFrac > 0.08) throw new Error(`bio-${tag}: ${(A.stats.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
+          if (B.stats.blownFrac > 0.08) throw new Error(`bio-${tag}-off: ${(B.stats.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
+          if (A.c.lit) {
+            // the layer must be DOING something — this is exactly the check
+            // the first v3.7 draft would have failed (it measured under 1.5%)
+            if (!(d.changedFrac > 0.02)) {
+              throw new Error(`bio-${tag}: turning the layer off changes only ${(d.changedFrac * 100).toFixed(2)}% of the frame — ${name} is indistinguishable from a non-luminous animal`);
+            }
+          } else {
+            // the control anchors the measurement: no light, no difference
+            if (d.changedFrac > 0.001) {
+              throw new Error(`bio-control: ${name} makes no light but changed ${(d.changedFrac * 100).toFixed(2)}% when the light layer was switched off`);
+            }
+          }
+        }
+        const litOnes = s.subjects.filter((x) => x.lit);
+        if (litOnes.length < 4) throw new Error(`bio: only ${litOnes.length} of the four lit patterns rendered lit`);
       });
 
       // ---- 11. Phase D controls: chrome + every plate knob + presets +
@@ -450,11 +634,36 @@ async function main() {
         // below are unchanged and still demand a fully on-viewport label.
         const hoverId = await page.evaluate(() => {
           const m = window.__menagerie;
-          let best = null;
+          const anchors = [];
           for (const c of m.test.creatureList()) {
             const an = m.controls.screenAnchor(c.id);
             if (!an || !(an.x > 80 && an.x < innerWidth - 120)) continue;
-            if (!best || an.radiusPx < best.r) best = { id: c.id, r: an.radiusPx, y: an.y };
+            anchors.push({ id: c.id, r: an.radiusPx, x: an.x, y: an.y });
+          }
+          // v3.7: prefer an ISOLATED body. On a two-species board the vessel
+          // now frames one species' depth, so both members of a pair can land
+          // on top of each other and the pointer sits inside two hit circles at
+          // once. The assertions below are about the LABEL (it surfaced, it
+          // named something, it fits on the viewport); which of two coincident
+          // bodies won the hit test is not the thing under test, so the target
+          // is chosen to make that question not arise. NOTE: an earlier version
+          // of this comment blamed labels.js's 150 ms stability debounce for a
+          // flicker. That mechanism is not real — effWant is acquired
+          // immediately from null and hitTest only re-runs on pointermove,
+          // which the harness does exactly once — and the claim is retracted
+          // here rather than left standing. No bound moved: the assertions are
+          // byte-identical to v3.6's.
+          let best = null;
+          for (const a of anchors) {
+            let near = Infinity;
+            for (const o of anchors) {
+              if (o.id === a.id) continue;
+              near = Math.min(near, Math.hypot(a.x - o.x, a.y - o.y) - a.r - o.r);
+            }
+            const score = { id: a.id, r: a.r, y: a.y, near };
+            if (!best || near > best.near + 20 || (Math.abs(near - best.near) <= 20 && a.r < best.r)) {
+              best = score;
+            }
           }
           if (!best) return null;
           const wantY = innerHeight * 0.6; // lower-middle: room for the label above
@@ -476,7 +685,7 @@ async function main() {
         }, hoverId);
         if (!a) throw new Error('no hoverable creature fully in view');
         await page.mouse.move(a.x, a.y);
-        await page.waitForTimeout(800); // label fade-in (wall clock rAF)
+        await page.waitForTimeout(1400); // label fade-in (wall clock rAF)
         const label = await page.evaluate(() => {
           const el = document.querySelector('.scene-label');
           if (!el) return null;
@@ -607,19 +816,27 @@ async function main() {
       // gains a stricter one: a creature out of reach must still be out of
       // reach at the end, i.e. it never left its own water to answer.
       await scenario('gather', async (s) => {
-        // anglerfish (500-1190 m) guarantees one creature living far outside
-        // earshot no matter where the vessel is looking — v3.5's real depth
-        // bands moved everything else into a much tighter spread.
-        await load('fixedstep=1&board=eel,fish,jellyfish,shark,octopus,kelp,anglerfish');
+        // v3.7: the beacon reaches through the WATER, and the water is now 36 km
+        // wide as well as 1200 m deep — seven unrelated species live seven
+        // different places on the transect and no one summons could honestly
+        // reach them all. So the crowd is a SCHOOL, which is one group in one
+        // patch of ocean by construction, and the anglerfish (500-1190 m, out
+        // over the slope) is still the creature living far outside earshot no
+        // matter where the vessel is looking. Every assertion below is
+        // unchanged; only the board it is asked of is.
+        await load('fixedstep=1&board=school%20of%20fish,jellyfish,kelp,anglerfish');
         await step(340); // formations complete, swimmers roam apart
         const setup = await page.evaluate(() => {
           const m = window.__menagerie;
           const reach = m.test.gatherReachPx();
-          // the beacon goes where a CLICK would put it: beside the porthole,
-          // at the depth the vessel is actually looking at
-          const pt = { x: 260, y: m.column.camY() - 40, z: -60 };
+          // the beacon goes where a CLICK would put it: beside the porthole, at
+          // the depth the vessel is looking at — and, from v3.7, at the vessel's
+          // own place on the transect. A click 260 px right of centre is 260 px
+          // right of the VESSEL; world x = 260 is a fixed point 18 km offshore.
+          const pt = { x: m.column.camX() + 260, y: m.column.camY() - 40, z: -60 };
           const list = m.test.creatureList();
-          const inReach = (c) => Math.abs(c.y - pt.y) <= reach;
+          // mirrors main.js's own reach test, both axes
+          const inReach = (c) => Math.abs(c.y - pt.y) <= reach && Math.abs(c.x - pt.x) <= reach * 1.8;
           // put one swimmer that IS in reach to sleep — it must not answer
           const sleeper = list.find((c) => c.klass === 'swimmer' && inReach(c));
           if (sleeper) m.controls.setParam(sleeper.id, 'behavior', 'sleep');
@@ -629,7 +846,13 @@ async function main() {
         const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
         const d0 = new Map(setup.list.map((c) => [c.id, dist(c, setup.pt)]));
         const inReach0 = new Set(
-          setup.list.filter((c) => Math.abs(c.y - setup.pt.y) <= setup.reach).map((c) => c.id),
+          setup.list
+            .filter(
+              (c) =>
+                Math.abs(c.y - setup.pt.y) <= setup.reach
+                && Math.abs(c.x - setup.pt.x) <= setup.reach * 1.8,
+            )
+            .map((c) => c.id),
         );
         const sleeperStart = setup.list.find((c) => c.id === setup.sleeperId);
         await step(40);
@@ -654,9 +877,13 @@ async function main() {
         // the column is real: a creature living outside earshot stays there
         if (!deaf.length) throw new Error('gather: board no longer has an out-of-reach creature to test against');
         for (const c of deaf) {
+          // v3.7: out of reach is a distance in the WATER, so the test is the
+          // same disjunction the app applies — either axis alone is enough to
+          // put a creature out of earshot, and it has to stay out.
           const dy = Math.abs(c.y - setup.pt.y);
-          if (dy <= setup.reach * 0.75) {
-            throw new Error(`gather: an out-of-reach creature (${c.id}) came ${Math.round(dy)}px of the beacon — bands are not holding`);
+          const dx = Math.abs(c.x - setup.pt.x);
+          if (dy <= setup.reach * 0.75 && dx <= setup.reach * 1.8 * 0.75) {
+            throw new Error(`gather: an out-of-reach creature (${c.id}) came ${Math.round(dy)}px / ${Math.round(dx)}px of the beacon — bands are not holding`);
           }
         }
         // sleeper exemption
@@ -730,25 +957,38 @@ async function main() {
         // not the trails — which is exactly what a 199-vs-234 "leak" turned out
         // to be. Pin both to one depth.
         const SOAK_DEPTH_M = 240;
+        // v3.7 extends that same reasoning to the second axis. The two loads
+        // carry different boards, so they frame different stretches of the
+        // TRANSECT, and 240 m over the inner shelf is a metre off the seabed
+        // while 240 m over the abyssal plain is open water — the "leak" would
+        // be the seabed sheet, measured once and not the other time. Pin both
+        // to one PLACE as well as one depth: the far offshore end, where the
+        // floor is 1200 m down and 240 m is mid-water with nothing in frame.
+        const SOAK_SHORE_M = 34000;
         const extinguish = () =>
-          page.evaluate((depthM) => {
+          page.evaluate(([depthM, shoreM]) => {
             const m = window.__menagerie;
             m.test.releaseAll();
             m.controls.setPreset('ink', { snap: true });
             m.atmosphere.setIntensity(0);
             m.test.setPlankton(0);
             m.test.setTrails(0.99);
+            // shore FIRST: the navigable depth range is the water under the
+            // vessel, so commanding the depth against the wrong stretch of
+            // transect would clamp it against a floor it is about to leave.
+            if (m.test.setShore) m.test.setShore(shoreM, true);
             if (m.test.setDepth) m.test.setDepth(depthM, true);
-          }, SOAK_DEPTH_M);
+          }, [SOAK_DEPTH_M, SOAK_SHORE_M]);
         await load('fixedstep=1&board=eel');
         await extinguish();
         await step(300);
         const baseBuf = await shot('soakE-baseline.png');
         await load(`fixedstep=1&board=${encodeURIComponent('jellyfish,kelp,eel,fish')}`);
-        await page.evaluate((depthM) => {
+        await page.evaluate(([depthM, shoreM]) => {
           window.__menagerie.controls.setPreset('bioluminescent bay', { snap: true });
+          if (window.__menagerie.test.setShore) window.__menagerie.test.setShore(shoreM, true);
           if (window.__menagerie.test.setDepth) window.__menagerie.test.setDepth(depthM, true);
-        }, SOAK_DEPTH_M);
+        }, [SOAK_DEPTH_M, SOAK_SHORE_M]);
         await step(2000); // ~33 s sim-time under bloom + atmosphere
         const fullBuf = await shot('soakE-full.png');
         const full = await pngStats(fullBuf, 'full');
@@ -828,6 +1068,18 @@ async function main() {
         await page.evaluate(() => window.__menagerie.ui.forceAmbient(true)); // chrome-free canvas
         await page.waitForTimeout(1600);
         await step(240); // formations complete
+
+        // v3.7 PRECONDITION, not a relaxation. The world gained a horizontal
+        // axis, and the navigable DEPTH range is now the water actually under
+        // the vessel: over the inner shelf it is 26 m deep, so "the column" is
+        // only a 1200 m journey where the ocean is 1200 m deep. Park at the far
+        // offshore end — which is exactly where v3.6's whole world sat, world
+        // x = 0 — and every assertion below is the v3.6 assertion unchanged.
+        await page.evaluate(() => {
+          const t = window.__menagerie.test;
+          t.setShore(t.shoreInfo().max, true);
+        });
+        await step(2);
 
         // -- (b) the world model + where the board actually lives ------------
         const info0 = await page.evaluate(() => window.__menagerie.test.depthInfo());
@@ -1029,12 +1281,306 @@ async function main() {
         }
       });
 
+      // ---- 15. transect: the v3.7 HORIZONTAL axis ------------------------
+      // The world stopped being a column and became a cross-shelf section, so
+      // this is the column scenario's twin: the same five questions asked
+      // sideways. Step counts are budgeted the same way — 5 stops of 50 frames
+      // instead of 4 of 80, so the whole scenario is cheaper than `column`.
+      await scenario('transect', async (s) => {
+        // one species per stretch of the transect, chosen so that the ecology
+        // itself is the assertion: a barnacle cannot be anywhere but the
+        // intertidal, a tube worm cannot be anywhere but the abyssal plain.
+        const board = 'barnacle,kelp,starfish,lanternfish,giant tube worm';
+        await load(`fixedstep=1&board=${encodeURIComponent(board)}`);
+        await page.waitForFunction(() => window.__menagerie.column);
+        await page.evaluate(() => window.__menagerie.ui.forceAmbient(true));
+        await page.waitForTimeout(1600);
+        await step(180); // formations complete
+
+        // -- (a) the model: one seabed whose depth depends on where you are ---
+        const t0 = await page.evaluate(() => window.__menagerie.test.shoreInfo());
+        s.range = { min: +t0.min.toFixed(1), max: t0.max, break: t0.break, plain: t0.plain };
+        if (t0.max < 30000) throw new Error(`transect: the transect is only ${t0.max} m long`);
+        if (t0.breakDepth !== 200) throw new Error(`transect: the shelf break is at ${t0.breakDepth} m, expected 200`);
+        if (!(t0.min > 0 && t0.min < 2000)) {
+          throw new Error(`transect: the inshore stop is ${t0.min} m offshore — the shore is not reachable`);
+        }
+        // the profile must be MONOTONE and must actually cross the break
+        const prof = await page.evaluate(() => {
+          const c = window.__menagerie.column;
+          const out = [];
+          for (let m = 0; m <= 36000; m += 500) out.push(c.profileDepthAt(m));
+          return out;
+        });
+        s.profileSamples = prof.length;
+        for (let i = 1; i < prof.length; i++) {
+          if (prof[i] < prof[i - 1] - 1e-6) {
+            throw new Error(`transect: the seabed profile rises seaward at ${i * 500} m (${prof[i - 1]} -> ${prof[i]})`);
+          }
+        }
+        if (!(prof[0] < 1 && prof[prof.length - 1] > 1100)) {
+          throw new Error(`transect: the profile runs ${prof[0]} m -> ${prof[prof.length - 1]} m; it must run shore to abyss`);
+        }
+
+        // -- (b) every creature at its true position, in BOTH axes -----------
+        const cs = await page.evaluate(() => window.__menagerie.test.creatureDepths());
+        s.creatures = cs.map((c) => ({
+          name: c.name, kind: c.kind, m: Math.round(c.depthM),
+          km: +(c.transectM / 1000).toFixed(2), zone: c.shoreZone, seabedM: Math.round(c.seabedAtM),
+        }));
+        const by = (n) => cs.find((c) => c.name === n);
+        const barnacle = by('barnacle');
+        const kelp = by('kelp');
+        const star = by('starfish');
+        const lantern = by('lanternfish');
+        const worm = by('tubeworm');
+        if (!barnacle || !kelp || !star || !lantern || !worm) {
+          throw new Error(`transect: board did not resolve: ${JSON.stringify(s.creatures)}`);
+        }
+        // an INTERTIDAL species is near the shore and in shallow water. Both
+        // halves matter: shallow alone was already true in v3.6, and it was
+        // true by planting it on a 1200 m plain and calling it shallow.
+        if (!(barnacle.transectM < 2500)) {
+          throw new Error(`transect: the barnacle is ${(barnacle.transectM / 1000).toFixed(1)} km offshore — it lives between the tides`);
+        }
+        if (!(barnacle.depthM < 25)) {
+          throw new Error(`transect: the barnacle is at ${barnacle.depthM.toFixed(0)} m — the intertidal is metres deep`);
+        }
+        // an OCEANIC species is off the shelf, over water far deeper than it
+        if (!(lantern.transectM > t0.break)) {
+          throw new Error(`transect: the lanternfish is ${(lantern.transectM / 1000).toFixed(1)} km offshore, inshore of the ${(t0.break / 1000).toFixed(0)} km shelf break — it is an open-ocean fish`);
+        }
+        if (!(lantern.seabedAtM > lantern.depthM * 2)) {
+          throw new Error(`transect: the lanternfish at ${lantern.depthM.toFixed(0)} m has only ${lantern.seabedAtM.toFixed(0)} m of water under it — it is not in the open ocean`);
+        }
+        // an ABYSSAL species is deep AND far out — the two are one fact here
+        if (!(worm.transectM > t0.plain && worm.depthM > 1100)) {
+          throw new Error(`transect: the tube worm is at ${worm.depthM.toFixed(0)} m, ${(worm.transectM / 1000).toFixed(1)} km out — it lives on the abyssal plain past ${(t0.plain / 1000).toFixed(0)} km`);
+        }
+        // and the board SPANS the transect, which is the whole feature
+        s.spreadKm = +((worm.transectM - barnacle.transectM) / 1000).toFixed(1);
+        if (!(worm.transectM - barnacle.transectM > 25000)) {
+          throw new Error(`transect: the board spans only ${s.spreadKm} km — it is not a crossing`);
+        }
+        // -- ...and everything ON the bottom is ON the bottom, THERE ---------
+        // The strong form: a floor dweller's own depth must equal the depth of
+        // the seabed at its OWN transect position. v3.6 could only ask "is it
+        // near the one seabed"; this asks "is it standing on the ground under
+        // it", which is the question the second axis makes askable.
+        s.floorFits = [];
+        for (const c of cs) {
+          if (c.kind !== 'rooted' && c.kind !== 'benthic') continue;
+          const offMeanM = c.depthM - c.seabedAtM; // + = below the mean profile
+          const offGroundPx = c.y - c.floorY; // + = hovering above its own ground
+          s.floorFits.push({ name: c.name, offMeanM: +offMeanM.toFixed(1), offGroundPx: +offGroundPx.toFixed(1) });
+          // relief is +/- 15 m of dune on top of the mean, so the mean test is
+          // generous; the GROUND test is the tight one.
+          if (Math.abs(offMeanM) > 18) {
+            throw new Error(`transect: ${c.name} is ${offMeanM.toFixed(1)} m off the seabed at its own position (${(c.transectM / 1000).toFixed(1)} km, seabed ${c.seabedAtM.toFixed(0)} m)`);
+          }
+          // rooted = flush or a few px into the silt (the v3.6 kelp window);
+          // benthic = flush to a hover of a metre or two plus its own bob.
+          const lo = c.kind === 'rooted' ? -26 : -8;
+          const hi = c.kind === 'rooted' ? 2 : 26;
+          if (!(offGroundPx >= lo && offGroundPx <= hi)) {
+            throw new Error(`transect: ${c.name} (${c.kind}) sits ${offGroundPx.toFixed(0)} px off the ground under it, outside [${lo}, ${hi}]`);
+          }
+        }
+        if (s.floorFits.length < 4) {
+          throw new Error(`transect: only ${s.floorFits.length} floor dwellers on a board of four — placement lost one`);
+        }
+
+        // -- (c) five stops: the scene AND the seabed change under you -------
+        const stops = [
+          ['shore', t0.min],
+          ['shelf', 6000],
+          ['break', t0.break],
+          ['slope', 23000],
+          ['abyss', 34000],
+        ];
+        s.stops = {};
+        let prevLuma = null;
+        for (const [tag, m] of stops) {
+          await page.evaluate((mm) => window.__menagerie.test.setShore(mm, true), m);
+          await step(3);
+          // hover just off the local seabed, so each stop shows its own ground
+          await page.evaluate(() => {
+            const t = window.__menagerie.test;
+            t.setDepth(t.shoreInfo().depthMax, true);
+          });
+          await step(50); // trails re-fill after the jump flushes them
+          const buf = await shot(`transect-${tag}.png`);
+          const st = await pngStats(buf, 'full');
+          const bot = await pngStats(buf, 'bottom');
+          const mid = await pngStats(buf, 'central');
+          const si = await page.evaluate(() => window.__menagerie.test.shoreInfo());
+          s.stops[tag] = {
+            shoreM: Math.round(si.shore),
+            zone: si.zone,
+            seabedM: +si.floorM.toFixed(1),
+            depthM: Math.round(si.depthMax),
+            meanLuma: +st.meanLuma.toFixed(2),
+            bottomLuma: +bot.meanLuma.toFixed(2),
+            centralLuma: +mid.meanLuma.toFixed(2),
+            litCount: st.litCount,
+            blownFrac: st.blownFrac,
+          };
+          if (st.blownFrac > 0.08) throw new Error(`transect-${tag}: ${(st.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
+          // THERE IS GROUND UNDER YOU, and it is drawn. The vessel is hovering
+          // just off the local seabed at every stop, so the bottom of the frame
+          // is the seabed and the middle is water. Asserted only at the three
+          // DARK stops: inshore the water is lit from above and the brightest
+          // band is the surface, which would make this test say the opposite
+          // for the right reason. v3.7 shipped with the break and the slope
+          // rendering as empty black — the haze was computed, written to the
+          // uniform, drawn, and then subtracted away by the trails pass — so
+          // 13 km of the crossing had no ground in it at all.
+          if (tag === 'break' || tag === 'slope' || tag === 'abyss') {
+            if (!(bot.meanLuma > 4)) {
+              throw new Error(`transect-${tag}: the bottom of the frame reads ${bot.meanLuma.toFixed(2)}/255 — the vessel is ${(si.floorM - si.depthMax).toFixed(0)} m off the seabed and there is no seabed drawn`);
+            }
+            if (!(bot.meanLuma > mid.meanLuma * 1.5)) {
+              throw new Error(`transect-${tag}: bottom ${bot.meanLuma.toFixed(2)} vs mid-water ${mid.meanLuma.toFixed(2)} — no ground edge; the frame is the same water top to bottom`);
+            }
+          }
+          if (prevLuma != null && Math.abs(st.meanLuma - prevLuma) < 0.4) {
+            throw new Error(`transect-${tag}: mean luma ${st.meanLuma.toFixed(2)} is the previous stop's — travelling the transect did not change the scene`);
+          }
+          prevLuma = st.meanLuma;
+        }
+        const S = s.stops;
+        // the seabed is DEEPER at every stop seaward — that is the profile
+        const order = ['shore', 'shelf', 'break', 'slope', 'abyss'];
+        for (let i = 1; i < order.length; i++) {
+          const a = S[order[i - 1]];
+          const b = S[order[i]];
+          if (!(b.seabedM > a.seabedM * 1.4)) {
+            throw new Error(`transect: the seabed goes ${a.seabedM} m at ${order[i - 1]} -> ${b.seabedM} m at ${order[i]} — the shelf is not dropping away`);
+          }
+        }
+        // ...and the light dies with it, because the shore end IS the shallow
+        // end: the inner shelf is unmistakably brighter than the slope
+        if (!(S.shore.meanLuma > S.slope.meanLuma + 8)) {
+          throw new Error(`transect: the shore (${S.shore.meanLuma}) is not visibly brighter than the slope (${S.slope.meanLuma})`);
+        }
+        if (!(S.shore.litCount > S.slope.litCount * 4)) {
+          throw new Error(`transect: shore lit ${S.shore.litCount} vs slope ${S.slope.litCount} — travelling out is not travelling into the dark`);
+        }
+        if (S.shore.zone !== 'shore' || S.abyss.zone !== 'abyss') {
+          throw new Error(`transect: zone names disagree with the positions (${S.shore.zone} / ${S.abyss.zone})`);
+        }
+
+        // -- (d) the vessel EASES sideways, and stops short of both ends -----
+        await page.evaluate(() => window.__menagerie.test.setShore(window.__menagerie.test.shoreInfo().min, true));
+        await step(2);
+        const easing = await page.evaluate(() => {
+          const t = window.__menagerie.test;
+          const from = t.shoreInfo().shore;
+          const to = t.shoreInfo().max;
+          t.setShore(to); // NOT instant — the column owns the travel
+          window.__menagerie.clock.stepMany(1, 1 / 60);
+          const afterOne = t.shoreInfo().shore;
+          window.__menagerie.clock.stepMany(30, 1 / 60); // half a second
+          const afterHalfSec = t.shoreInfo().shore;
+          return { from, to, afterOne, afterHalfSec };
+        });
+        const span = easing.to - easing.from;
+        s.easing = {
+          from: Math.round(easing.from),
+          to: Math.round(easing.to),
+          movedInOneFrame: +(easing.afterOne - easing.from).toFixed(1),
+          movedInHalfSecond: Math.round(easing.afterHalfSec - easing.from),
+        };
+        if (!(easing.afterOne - easing.from > 0)) throw new Error('transect: setShore did not start the vessel moving');
+        if (easing.afterOne - easing.from > span * 0.05) {
+          throw new Error(`transect: setShore teleported — ${(easing.afterOne - easing.from).toFixed(0)} m of a ${span.toFixed(0)} m command in one frame`);
+        }
+        if (!(easing.afterHalfSec > easing.afterOne)) throw new Error('transect: the vessel stalled mid-crossing');
+        // 8 s sim. The flank cap puts the 36 km crossing at ~6 s and the spring
+        // settles inside 1.8 s of that, so this is arrival plus margin, not a
+        // budget guess.
+        await step(480);
+        const arrived = await page.evaluate(() => window.__menagerie.test.shoreInfo());
+        s.arrivedM = Math.round(arrived.shore);
+        if (Math.abs(arrived.shore - arrived.max) > 2) {
+          throw new Error(`transect: the vessel never arrived (${arrived.shore.toFixed(0)} m of a ${arrived.max.toFixed(0)} m crossing)`);
+        }
+        const clamps = await page.evaluate(() => {
+          const t = window.__menagerie.test;
+          const r = t.shoreInfo();
+          t.setShore(-9999, true);
+          const lo = t.shoreInfo().shore;
+          t.setShore(999999, true);
+          const hi = t.shoreInfo().shore;
+          return { lo, hi, min: r.min, max: r.max };
+        });
+        s.clamps = { lo: +clamps.lo.toFixed(1), hi: +clamps.hi.toFixed(1) };
+        if (Math.abs(clamps.lo - clamps.min) > 0.01 || Math.abs(clamps.hi - clamps.max) > 0.01) {
+          throw new Error(`transect: shore did not clamp to [${clamps.min.toFixed(0)}, ${clamps.max}] — got ${clamps.lo.toFixed(0)} / ${clamps.hi.toFixed(0)}`);
+        }
+
+        // -- (e) determinism across BOTH axes --------------------------------
+        await page.evaluate(() => {
+          const t = window.__menagerie.test;
+          // the sunlit inner shelf: a stop with real content in frame, and one
+          // whose navigable depth band (9-39 m here) contains 30 m with room
+          // either side, so the round trip is testing the hash and not a clamp.
+          t.setShore(9000, true);
+          t.setDepth(30, true);
+        });
+        const ser = await page.evaluate(() => window.__menagerie.controls.serialize());
+        s.serialized = ser;
+        if (!/(^|;)s=9000(;|$)/.test(ser)) throw new Error(`transect: the transect position did not serialize into the hash: ${ser}`);
+        if (!/(^|;)d=30(;|$)/.test(ser)) throw new Error(`transect: the depth did not serialize alongside it: ${ser}`);
+        const shoot = async (name, nonce) => {
+          await page.goto(`${server.origin}/?fixedstep=1&nonce=${nonce}#${encodeURIComponent(ser)}`, { waitUntil: 'load', timeout: 90000 });
+          await page.waitForFunction(
+            () => window.__menagerie && window.__menagerie.clock && typeof window.__menagerie.clock.stepMany === 'function',
+            null, { timeout: 90000 },
+          );
+          await page.evaluate(() => window.__menagerie.ui.forceAmbient(true));
+          await page.waitForTimeout(1600);
+          await step(120);
+          return shot(name);
+        };
+        const detA = await shoot('transect-determinism-a.png', 'a');
+        const detB = await shoot('transect-determinism-b.png', 'b');
+        s.deterministic = detA.equals(detB);
+        const restored = await page.evaluate(() => ({
+          shore: window.__menagerie.test.shoreInfo().target,
+          depth: window.__menagerie.test.depthInfo().target,
+        }));
+        s.restored = { shore: +restored.shore.toFixed(1), depth: +restored.depth.toFixed(1) };
+        if (Math.abs(restored.shore - 9000) > 0.01) {
+          throw new Error(`transect: the hash restored the vessel at ${restored.shore.toFixed(0)} m offshore, not 9000 m`);
+        }
+        if (Math.abs(restored.depth - 30) > 0.01) {
+          throw new Error(`transect: the hash restored the vessel at ${restored.depth.toFixed(1)} m, not 30 m`);
+        }
+        if (!s.deterministic) {
+          throw new Error('transect: the same hash at the same place on the transect rendered two different frames');
+        }
+        // the creatures came back to the same place in BOTH axes too
+        const again = await page.evaluate(() => window.__menagerie.test.creatureDepths());
+        s.replayed = again.length;
+        for (const c of again) {
+          const was = cs.find((o) => o.name === c.name);
+          if (!was) throw new Error(`transect: '${c.name}' did not come back from the hash`);
+          if (Math.abs(c.homeS - was.homeS) > 0.01) {
+            throw new Error(`transect: ${c.name} restored ${(c.homeS - was.homeS).toFixed(0)} m along the transect from where it was — placement is not deterministic in x`);
+          }
+          if (Math.abs((c.homeM ?? 0) - (was.homeM ?? 0)) > 0.01) {
+            throw new Error(`transect: ${c.name} restored ${(c.homeM - was.homeM).toFixed(1)} m from its depth — placement is not deterministic in y`);
+          }
+        }
+      });
+
     } finally {
       await browser.close().catch(() => {});
       await server.close().catch(() => {});
     }
   } else {
-    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'gather', 'capture', 'soakE', 'resize', 'column']) {
+    for (const name of ['duo', 'swaySweep', 'ray', 'pileup', 'soak', 'sweep', 'solo', 'controls', 'atmosphere', 'gather', 'capture', 'soakE', 'resize', 'column', 'transect']) {
       report.scenarios[name] = { pass: false, error: 'skipped: build failed' };
     }
   }
@@ -1055,6 +1601,143 @@ async function main() {
       s.pass = false;
       s.error = String((e && e.stack) || e);
       console.error('cpu bench FAILED: ' + s.error.split('\n')[0]);
+    }
+  }
+
+  // ---- 9b. data + ecology, in node (no browser) -------------------------
+  // src/oceandata.js, src/depthbands.js and src/lexicon.js are three-free and
+  // node-importable by contract, so the whole data layer is testable without
+  // paying for a build. This is the scenario that guards the SIX HONESTY RULES
+  // and, from v3.7, the second axis's data.
+  currentScenario = 'data';
+  {
+    const s = { pass: true };
+    report.scenarios.data = s;
+    try {
+      const od = await import('../src/oceandata.js');
+      const db = await import('../src/depthbands.js');
+      const lx = await import('../src/lexicon.js');
+      const RAW = od.RAW;
+      const keys = od.speciesKeys();
+      s.species = keys.length;
+      s.zoned = od.zonedKeys().length;
+      s.bands = Object.keys(RAW.bands).length;
+      s.aliases = Object.keys(RAW.aliases).length;
+      if (!(keys.length >= 150)) throw new Error(`data: ${keys.length} species records, expected the 84 v3.5 ones plus the v3.7 research`);
+      if (!(s.zoned >= 70)) throw new Error(`data: only ${s.zoned} records carry a shoreZone`);
+
+      // RULE 1 — a null is never displayed, and never invented. Every figure
+      // that reaches a row must be non-null, and a record that lost a sourced
+      // figure to the merge is a data bug.
+      const ZONES = new Set(['intertidal', 'nearshore', 'shelf', 'shelfbreak', 'slope', 'oceanic', 'abyssal']);
+      let nulledRow = 0;
+      for (const k of keys) {
+        for (const r of od.statRows(k, { precision: true })) {
+          // A leaked null renders as the exact string 'null' / 'undefined' /
+          // 'NaN'. A substring match would flag the `precision` prose, which
+          // says "Depth nulled - no published range" on purpose — that sentence
+          // IS rule 1 being honest, and it must not be mistaken for a breach.
+          const v = r.value == null ? null : String(r.value).trim();
+          if (v == null || v === '' || v === 'null' || v === 'undefined' || v === 'NaN') nulledRow++;
+        }
+        const rec = RAW.species[k];
+        if (rec.shoreZone) {
+          if (!Array.isArray(rec.shoreZone) || !rec.shoreZone.length) throw new Error(`data: ${k} has an empty shoreZone`);
+          for (const z of rec.shoreZone) {
+            if (!ZONES.has(z)) throw new Error(`data: ${k} has shoreZone '${z}', which is not one of the seven`);
+          }
+        }
+        // the three-state fields must never be coerced to a plain boolean
+        const n = od.statsFor(k);
+        if (rec.benthic === undefined && n.benthic !== null) throw new Error(`data: ${k} invented a benthic flag`);
+        if (rec.bioluminescent === undefined && n.bioluminescent !== null) throw new Error(`data: ${k} invented a bioluminescence flag`);
+      }
+      s.nulledRows = nulledRow;
+      if (nulledRow) throw new Error(`data: ${nulledRow} rendered rows carry a null figure — rule 1`);
+
+      // a researched FALSE is an answer. The barreleye is the case that proves
+      // it: it watches other animals' light and makes none of its own.
+      if (od.isBioluminescent('barreleye') !== false) throw new Error('data: barreleye must be a researched false, not a gap');
+      if (od.isBioluminescent('lanternfish') !== true) throw new Error('data: lanternfish must be bioluminescent');
+      if (od.isBioluminescent('whale') !== null) throw new Error('data: whale was never researched for light; it must read null, not false');
+      // DIEL: the sourced day/night split survives the merge intact
+      const lf = od.statsFor('lanternfish');
+      s.diel = { day: lf.dayLabel, night: lf.nightLabel };
+      if (!(lf.dayDepthMaxM > lf.nightDepthMaxM)) throw new Error('data: the lanternfish must be deeper by day than by night');
+      if (!od.dielFor('lanternfish')) throw new Error('data: the lanternfish lost its migration sentence');
+
+      // the merge must not have overwritten a v3.5 sourced figure
+      if (od.statsFor('sardine').depthMaxM == null) throw new Error('data: sardine lost its sourced depth in the merge');
+      if (od.statsFor('seasnake').shoreZone == null) throw new Error('data: seasnake did not gain its shore zones in the merge');
+
+      // ---- the second axis: every zoned species lands where it lives ------
+      s.placed = [];
+      const expect = [
+        // name, max metres offshore, min metres offshore, max depth, min depth
+        ['barnacle', 2500, 0, 25, 0],
+        ['mussel', 3000, 0, 40, 0],
+        ['kelp', 8000, 0, 60, 0],
+        ['parrotfish', 17000, 0, 60, 0],
+        ['lanternfish', 36000, 15500, 1200, 0],
+        ['tubeworm', 36000, 27500, 1200, 1000],
+        ['tripod fish', 36000, 19000, 1200, 700],
+      ];
+      for (const [name, maxKmM, minKmM, maxD, minD] of expect) {
+        const r = lx.resolveName(name);
+        s.placed.push({ name, km: +(r.transectM / 1000).toFixed(2), m: +r.depthM.toFixed(1), kind: r.band.kind, arch: r.arch });
+        if (r.transectM > maxKmM || r.transectM < minKmM) {
+          throw new Error(`data: ${name} placed ${(r.transectM / 1000).toFixed(1)} km offshore, outside [${minKmM / 1000}, ${maxKmM / 1000}] km`);
+        }
+        if (r.depthM > maxD || r.depthM < minD) {
+          throw new Error(`data: ${name} placed at ${r.depthM.toFixed(0)} m, outside [${minD}, ${maxD}] m`);
+        }
+      }
+      // a floor dweller's depth IS the seabed at its own transect position
+      for (const name of ['barnacle', 'mussel', 'kelp', 'tubeworm', 'starfish', 'crab', 'sponge']) {
+        const r = lx.resolveName(name);
+        if (r.band.kind !== 'rooted' && r.band.kind !== 'benthic') continue;
+        const floor = db.floorDepthAt(r.transectM);
+        if (Math.abs(floor - r.depthM) > 4) {
+          throw new Error(`data: ${name} is at ${r.depthM.toFixed(1)} m but the seabed at its own position (${(r.transectM / 1000).toFixed(1)} km) is ${floor.toFixed(1)} m`);
+        }
+      }
+      // ...and a swimmer always has water under it
+      for (const name of ['lanternfish', 'anglerfish', 'dolphin', 'tuna', 'turtle', 'sea otter', 'atolla jellyfish']) {
+        const r = lx.resolveName(name);
+        const floor = db.floorDepthAt(r.transectM);
+        if (floor < r.depthM) {
+          throw new Error(`data: ${name} is at ${r.depthM.toFixed(0)} m over ${floor.toFixed(0)} m of water — it is inside the seabed`);
+        }
+      }
+
+      // ---- the lexicon still answers every old word, and the new ones -----
+      const arches = new Set(lx.ARCH_NAMES);
+      if (!arches.has('tetrapod')) throw new Error('data: the tetrapod archetype is missing from the lexicon');
+      if (lx.resolveName('turtle').arch !== 'tetrapod') throw new Error('data: turtle must be a marine tetrapod, not a ray');
+      const legacy = ['eel', 'jellyfish', 'manta', 'koi', 'octopus', 'starfish', 'blob', 'lotus', 'kelp', 'shark', 'anemone', 'squid', 'coral', 'red jellyfish', 'school of fish'];
+      for (const w of legacy) {
+        const r = lx.resolveName(w);
+        if (!r.arch || !r.band || !r.band.kind) throw new Error(`data: the legacy word '${w}' stopped resolving`);
+      }
+      // every new species word resolves to a real archetype and a real band
+      let unresolved = 0;
+      for (const k of od.zonedKeys()) {
+        const r = lx.resolveName(k);
+        if (!r.band || r.band === db.DEFAULT_BAND) unresolved++;
+      }
+      s.unresolvedZoned = unresolved;
+      if (unresolved) throw new Error(`data: ${unresolved} researched species fall through to the default band`);
+      // multi-word names collapse to the same creature as the single word
+      for (const [a, b] of [['sea turtle', 'seaturtle'], ['giant tube worm', 'tubeworm'], ['sea otter', 'seaotter']]) {
+        const ra = lx.resolveName(a);
+        const rb = lx.resolveName(b);
+        if (ra.seed !== rb.seed || ra.arch !== rb.arch) throw new Error(`data: '${a}' and '${b}' are two different creatures`);
+      }
+      console.log(`data: ${s.species} species (${s.zoned} cross-shelf), ${s.bands} bands, ${s.aliases} aliases — all rows non-null`);
+    } catch (e) {
+      s.pass = false;
+      s.error = String((e && e.stack) || e);
+      console.error('data FAILED: ' + s.error.split('\n')[0]);
     }
   }
 

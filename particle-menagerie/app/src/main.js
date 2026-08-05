@@ -29,7 +29,14 @@ import { resolveName, colorFromHue } from './lexicon.js';
 import { createControls, defaultCtrl, PRESETS } from './controls.js';
 import { create as createAtmosphere } from './atmosphere/index.js';
 import { createBackground } from './background.js';
-import { createColumn, seabedYAt, METRES_PER_PX, DEFAULT_DEPTH_M } from './column.js';
+import {
+  createColumn,
+  seabedYAt,
+  METRES_PER_PX,
+  DEFAULT_DEPTH_M,
+  DEFAULT_SHORE_M,
+  TRANSECT_METRES_PER_PX,
+} from './column.js';
 import {
   createDepthSample,
   sampleDepth,
@@ -38,20 +45,24 @@ import {
 } from './depthprofile.js';
 import {
   setDepthUnits,
-  placeDepth,
+  placeSpot,
   attachDepth,
   steerDepth,
   clampToBand,
+  clampToTransect,
+  transectRangeFor,
   worldYForDepth,
   floorYAt,
   depthUnits,
 } from './depthbands.js';
+import { bioForSpec, applyBio, setBioMaster, bioDepthGain } from './biolum.js';
 import { initSummon } from './ui/summon.js';
 import { initPlate } from './ui/plate.js';
 import { initRotary } from './ui/rotary.js';
 import { initAmbient } from './ui/ambient.js';
 import { initLabels } from './ui/labels.js';
 import { initDepthGauge } from './ui/depthgauge.js';
+import { initShoreGauge } from './ui/shoregauge.js';
 import { initInspector } from './ui/inspector.js';
 import { initGather } from './gather.js';
 import { initCapture } from './capture.js';
@@ -117,6 +128,16 @@ function boot() {
     camera.lookAt(0, 0, 0);
   }
   const camY = () => (column ? column.camY() : 0);
+  // v3.7 — the vessel's world X. Everything pinned to the VESSEL rather than to
+  // the world (the plankton lattice, the caustic shafts, a cursor mapping) has
+  // to add this, exactly as it already adds camY. Anything pinned to the WORLD
+  // (creatures, the seabed sheet) must not.
+  const camX = () => (column ? column.camX() : 0);
+  // A creature roams inside a HOME RANGE around where its species lives, not
+  // around world x = 0 — that was the flat-world assumption on the horizontal
+  // axis, the exact twin of the `|py| > H/2` clamp v3.4 removed on the vertical
+  // one. One screen of slack: local motion, true position.
+  const ROAM_HALF_PX = () => state.W * 0.5 + 140;
   function updateCameraDistance(cssH) {
     camDist = cssH / 2 / Math.tan((FOV * Math.PI) / 360);
     applyCamera();
@@ -255,8 +276,23 @@ function boot() {
           instance: spec.instance ?? 0,
           homeM: spec.depthM,
           liftPx: spec.liftPx ?? 0,
+          // v3.7 — the horizontal home, handed over from placement for exactly
+          // the reason homeM is: steering that re-derives it would disagree
+          // with the spawn by a jitter's width and pull the creature sideways
+          // out of the group it was placed in.
+          homeS: spec.transectM,
+          homeX: spec.homeX ?? spec.base[0],
         });
       }
+      // ---- v3.7 bioluminescence -------------------------------------------
+      // The record is the species' own (src/biolum.js, overridden by the
+      // researched `bioluminescent`/`bioNote`/`bioColour` fields in
+      // ocean-data.json). `infer` lights the unlisted species whose BAND sits
+      // in the dark, because that is what the layer does — roughly three
+      // quarters of the animals below 250 m emit light. A null record leaves
+      // the uniforms alone and the creature renders exactly as it did in v3.6.
+      this.bio = spec.band ? bioForSpec(spec, { infer: true, band: spec.band }) : bioForSpec(spec);
+      if (this.bio) applyBio(this.material, this.bio);
       // culling state: `culled` is true while the creature is outside the
       // porthole's band + margin (skeleton math skipped, not drawn); `catchUp`
       // asks the next visible frame to place the dots ON their targets instead
@@ -369,11 +405,16 @@ function boot() {
         Math.sin(t * 0.13 + this.d1) * 0.25 -
         0.4 * Math.sin(2 * this.heading);
       this.heading += turn * dt;
-      const hw = state.W / 2 - 140;
+      // v3.7: the roam box is centred on the creature's OWN place on the
+      // transect, not on world x = 0. Steering back toward x = 0 was the
+      // horizontal flat-world assumption — it would have marched every animal
+      // on the board to the far offshore end of a 36 km ocean within a minute.
+      const home = this.homeX ?? 0;
+      const hw = ROAM_HALF_PX() - 140;
       const out =
-        Math.abs(this.px) > hw || this.pz < Z_MIN + 40 || this.pz > Z_MAX - 30;
+        Math.abs(this.px - home) > hw || this.pz < Z_MIN + 40 || this.pz > Z_MAX - 30;
       if (out) {
-        const ta = Math.atan2(-(Z_MID - this.pz), 0 - this.px);
+        const ta = Math.atan2(-(Z_MID - this.pz), home - this.px);
         let diff = ta - this.heading;
         while (diff > Math.PI) diff -= TAU;
         while (diff < -Math.PI) diff += TAU;
@@ -433,8 +474,12 @@ function boot() {
       const spd = (this.speed || 26) * this.ctrl.tempo;
       this.patAng += (spd / 150) * dt; // tangential speed ~ roam speed
       const a = this.patAng;
-      const hw = state.W / 2 - 100;
-      this.px = Math.min(Math.max(this.patC.x + 150 * Math.cos(a), -hw), hw);
+      // v3.7: bounded around the patrol's own centre — which is where the
+      // creature was when patrol began, i.e. its own water — not around the
+      // world origin.
+      const home = this.homeX ?? 0;
+      const hw = ROAM_HALF_PX() - 100;
+      this.px = Math.min(Math.max(this.patC.x + 150 * Math.cos(a), home - hw), home + hw);
       this.pz = Math.min(Math.max(this.patC.z + 60 * Math.sin(a), Z_MIN + 20), Z_MAX - 10);
       this.py += (this.patC.y + 20 * Math.sin(a * 0.5) - this.py) * Math.min(1, 1.5 * dt);
       const dx = -Math.sin(a);
@@ -701,49 +746,60 @@ function boot() {
     // frozen draw order of everything after them (rot, tempo, phase, speed) is
     // unchanged from v3.3 and a legacy hash still yields the same bodies.
     const floorDweller = band.kind === 'rooted' || band.kind === 'benthic';
+    // v3.7: a ROOTED BAND makes a creature rooted whatever archetype draws it.
+    // A barnacle wears the amorph body plan (it is a lump) but it is cemented
+    // to the rock, and letting the amorph's drifter wander carry it would be
+    // the "flora cannot float" rule broken sideways. This affects MOTION only —
+    // the `rot` draw below still keys off the registry's own class, so the
+    // frozen prng order is untouched.
+    const liveKlass = band.kind === 'rooted' ? 'rooted' : klass;
     let base;
     let liftPx = 0;
     let depthM = 0;
+    let transectM = 0;
     let heading = prng() * TAU;
+    // ---- v3.7: WHERE IT ACTUALLY LIVES, in both axes ----------------------
+    // The world x is no longer a screen-relative scatter around the camera. It
+    // is the creature's own place on the 36 km transect (depthbands.placeSpot),
+    // plus a small LATERAL jitter so a batch of five is a group rather than a
+    // line. The jitter is the SAME prng draw the screen scatter used, remapped
+    // — no extra calls, so the frozen draw order of everything after it (rot,
+    // tempo, phase, speed) is byte-identical to v3.4 and a legacy hash still
+    // yields the same bodies.
     if (floorDweller) {
-      let px = (prng() * 2 - 1) * (state.W / 2 - 120);
-      // Keep flora out of the summon input's center band (pure remap of the
-      // same draw — no extra prng calls, draw order stays frozen).
-      const EXCL = 220;
-      if (Math.abs(px) < EXCL) px = (px < 0 ? -1 : 1) * (EXCL + (EXCL - Math.abs(px)) * 0.6);
+      const jitterPx = (prng() * 2 - 1) * (state.W / 2 - 120);
       const pz = -280 + prng() * 260;
       // Rooted geometry puts the root anchor at LOCAL y = 0 (geometry-spec:
       // "root at local origin, stem grows +Y"), so the object's origin IS the
-      // holdfast — placing it at the floor plants the thing. This used to add
-      // a 40-86 px LIFT to keep short plants "clear of the sediment", which
-      // instead left every plant hovering half a body-length above the seabed
-      // with a visible gap of open water under it. It is now a small negative
-      // embed: the base sinks a few px into the silt, which is where a
-      // holdfast actually is. Same single prng draw, so the frozen draw order
-      // (geometry-spec section 8) is untouched.
+      // holdfast — placing it at the floor plants the thing. A small negative
+      // embed sinks the base a few px into the silt, which is where a holdfast
+      // actually is. Same single prng draw.
       const embed = -(3 + prng() * 11);
       liftPx = band.kind === 'rooted' ? embed : 0; // benthic hover comes from the band
-      const pl = placeDepth({
+      const pl = placeSpot({
         band, name: res.name, arch: res.arch, seed: res.seed, instance,
-        x: px, z: pz, liftPx,
+        z: pz, jitterPx, liftPx,
       });
-      base = [px, pl.worldY, pz];
+      base = [pl.worldX, pl.worldY, pz];
       depthM = pl.depthM;
+      transectM = pl.transectM;
     } else {
-      const px = (prng() * 2 - 1) * (state.W / 2 - 180);
+      const jitterPx = (prng() * 2 - 1) * (state.W / 2 - 180);
       prng(); // v3.3 drew y here; the band owns it now. Draw kept, value dropped.
       const pz = Z_MIN + 20 + prng() * (Z_MAX - Z_MIN - 40);
-      const pl = placeDepth({
-        band, name: res.name, arch: res.arch, seed: res.seed, instance, x: px, z: pz,
+      const pl = placeSpot({
+        band, name: res.name, arch: res.arch, seed: res.seed, instance,
+        z: pz, jitterPx,
       });
-      base = [px, pl.worldY, pz];
+      base = [pl.worldX, pl.worldY, pz];
       depthM = pl.depthM;
+      transectM = pl.transectM;
     }
     return {
       id: 'c' + nextId++, // assigned at spec time so summon() can report it
       kind: res.arch,
       arch: res.arch,
-      klass,
+      klass: liveKlass,
       name: res.name,
       count: res.count,
       instance,
@@ -762,7 +818,7 @@ function boot() {
       scatterR: entry.boundR * 0.8,
       // v3.4: a benthic drifter (starfish, crab) must not bob 26 px off the
       // floor it is standing on — its wander is flattened, not removed.
-      driftAmp: klass === 'drifter' ? (floorDweller ? [30, 5, 20] : [44, 26, 30]) : [0, 0, 0],
+      driftAmp: liveKlass === 'drifter' ? (floorDweller ? [30, 5, 20] : [44, 26, 30]) : [0, 0, 0],
       yawAmp: 0,
       yawOffset: entry.yawOffset,
       spin: entry.spin,
@@ -773,6 +829,9 @@ function boot() {
       band,
       depthM,
       liftPx,
+      // ---- v3.7 horizontal placement — metres offshore, the same contract ---
+      transectM,
+      homeX: base[0],
     };
   }
 
@@ -803,10 +862,16 @@ function boot() {
         // than the creature being dragged to a screen-relative pose. A floor
         // dweller keeps its footing on the relief under the axis.
         const floor = spec.band && (spec.band.kind === 'rooted' || spec.band.kind === 'benthic');
+        // v3.7: "the column's axis" is now the vessel's OWN x — the museum pose
+        // brings the vessel to the creature's true transect position (below)
+        // and stands it there, rather than dragging the creature to world x=0,
+        // which on the transect is the far end of the abyssal plain.
+        const cx = spec.base[0];
         const y = floor
-          ? seabedYAt(0, -60) + (spec.base[1] - seabedYAt(spec.base[0], spec.base[2]))
+          ? seabedYAt(cx, -60) + (spec.base[1] - seabedYAt(spec.base[0], spec.base[2]))
           : spec.base[1];
-        spec.base = [0, y, -60];
+        spec.base = [cx, y, -60];
+        spec.homeX = cx;
         spec.heading = Math.PI * 0.08;
         spec.speed = 0;
       }
@@ -823,6 +888,7 @@ function boot() {
       ensureVisible(first.base[1], first.base[2], first.boundR * first.scale, {
         instant: !!opts.center,
         source: 'summon',
+        x: first.base[0], // v3.7: and along the transect, to where it lives
       });
     }
     saveHash();
@@ -836,11 +902,25 @@ function boot() {
    */
   function ensureVisible(worldY, worldZ, radiusPx, opts = {}) {
     if (!column) return false;
-    if (!opts.instant && column.outOfBandPx(worldY, worldZ, radiusPx * 0.6) <= 0) return false;
-    column.setDepth(column.worldYToMetres(worldY), {
-      instant: !!opts.instant,
-      source: opts.source || 'auto',
-    });
+    const worldX = opts.x;
+    const r = radiusPx * 0.6;
+    const offY = column.outOfBandPx(worldY, worldZ, r);
+    const offX = worldX == null ? 0 : column.outOfBandPxX(worldX, worldZ, r);
+    if (!opts.instant && offY <= 0 && offX <= 0) return false;
+    // v3.7 — the horizontal half first, for the same reason frameBoard does it
+    // in that order: the depth stops depend on the seabed under the vessel.
+    if (worldX != null && (opts.instant || offX > 0)) {
+      column.setShore(column.worldXToTransect(worldX), {
+        instant: !!opts.instant,
+        source: opts.source || 'auto',
+      });
+    }
+    if (opts.instant || offY > 0) {
+      column.setDepth(column.worldYToMetres(worldY), {
+        instant: !!opts.instant,
+        source: opts.source || 'auto',
+      });
+    }
     return true;
   }
 
@@ -876,14 +956,29 @@ function boot() {
     // metres, and a stable integer is what makes serialize -> restore ->
     // serialize a byte-identical round trip.
     if (column) parts.push('d=' + Math.round(column.targetDepth()));
+    // v3.7 — and the vessel's COMMANDED position on the transect ('s=12400',
+    // metres offshore). The same contract as 'd=': rounded to the metre so
+    // serialize -> restore -> serialize is a byte-identical round trip, and
+    // absent in the spike scenes, which have no column. A v3.6 hash with no
+    // 's=' restores at the far offshore end, which is where v3.6's world was.
+    if (column) parts.push('s=' + Math.round(column.targetShore()));
     return parts.join(';');
   }
 
   /** Pull 'd=<metres>' out of a hash body, or null. Static — usable before the
    *  column exists, which is exactly when the boot depth has to be known. */
   function depthFromHash(str) {
+    return numFromHash(str, 'd');
+  }
+
+  /** Pull 's=<metres offshore>' out of a hash body, or null. */
+  function shoreFromHash(str) {
+    return numFromHash(str, 's');
+  }
+
+  function numFromHash(str, key) {
     for (const seg of String(str ?? '').split(';')) {
-      const m = /^\s*d=(-?\d+(?:\.\d+)?)\s*$/.exec(seg);
+      const m = new RegExp('^\\s*' + key + '=(-?\\d+(?:\\.\\d+)?)\\s*$').exec(seg);
       if (m) {
         const v = parseFloat(m[1]);
         if (Number.isFinite(v)) return v;
@@ -908,26 +1003,56 @@ function boot() {
     for (const p of state.pending) if (p.spec.band) specs.push(p.spec);
     if (!specs.length) return;
     const open = specs.filter((s) => s.band.kind === 'pelagic');
-    const cands = (open.length ? open : specs).map((s) => s.depthM).sort((a, b) => a - b);
+    const pool = open.length ? open : specs;
+    // v3.7 — the same vote, over PAIRS. Each candidate is one creature's actual
+    // place in the ocean, (metres down, metres offshore), and it scores the
+    // number of creatures that would land inside the porthole from there. It
+    // has to be the pair and not one vote per axis: voting separately picks the
+    // best row and the best column of a sparse grid, and their intersection is
+    // routinely empty — a board of twelve species spread over 36 km and 1200 m
+    // opened on a frame with nothing in it. n <= 14, so this is 196 comparisons
+    // once per board load.
     const halfM = (state.H / 2) * METRES_PER_PX;
+    const halfS = (state.W / 2) * TRANSECT_METRES_PER_PX;
     const r = column.range(); // shared object — read the two numbers now
     const lo = r.min;
     const hi = r.max;
-    let best = cands[0];
+    const sr = column.shoreRange();
+    // sorted shallowest-first, then most-inshore: with a strictly-greater test
+    // below, ties go to the stop nearest the light and nearest the coast, so a
+    // fresh board opens where the journey begins rather than where it ends.
+    const cands = pool
+      .map((s) => ({ d: s.depthM, t: s.transectM ?? sr.max }))
+      .sort((a, b) => a.d - b.d || a.t - b.t);
+    let bestD = cands[0].d;
+    let bestS = cands[0].t;
     let bestN = -1;
     for (const c of cands) {
-      const d = c < lo ? lo : c > hi ? hi : c; // where the vessel would actually sit
+      // where the vessel would actually sit: the depth stops depend on the
+      // seabed under THAT stretch of transect, so the shore clamp comes first
+      const st = c.t < sr.min ? sr.min : c.t > sr.max ? sr.max : c.t;
+      const floorHere = column.profileDepthAt(st);
+      const dHi = Math.min(hi, Math.max(floorHere * 0.75, lo));
+      const d = c.d < lo ? lo : c.d > dHi ? dHi : c.d;
       let n = 0;
       for (const s of specs) {
-        const radM = s.boundR * s.scale * 0.55 * METRES_PER_PX;
-        if (Math.abs(s.depthM - d) <= halfM + radM) n++;
+        const rad = s.boundR * s.scale * 0.55;
+        if (
+          Math.abs(s.depthM - d) <= halfM + rad * METRES_PER_PX
+          && Math.abs((s.transectM ?? sr.max) - st) <= halfS + rad * TRANSECT_METRES_PER_PX
+        ) n++;
       }
       if (n > bestN) {
-        bestN = n; // strictly greater: the sorted scan makes ties shallowest-wins
-        best = c;
+        bestN = n;
+        bestD = c.d;
+        bestS = c.t;
       }
     }
-    column.setDepth(best, { instant: true, source: 'frame' });
+    // shore first: the navigable DEPTH range depends on the local seabed, so
+    // commanding the depth against the wrong stretch of transect would clamp it
+    // against a floor the vessel is about to leave.
+    column.setShore(bestS, { instant: true, source: 'frame' });
+    column.setDepth(bestD, { instant: true, source: 'frame' });
   }
 
   function saveHash() {
@@ -1047,9 +1172,14 @@ function boot() {
     // off-screen by construction), so the water is full of motes at every depth
     // instead of leaving them all glued to the surface. Identical to v3.3 when
     // vy is 0 — the spike scenes never run this anyway.
-    function update(t, viewY = 0) {
+    // v3.7: the same lattice trick on the horizontal axis. Each speck keeps a
+    // fixed world trajectory and is drawn at the image nearest the porthole —
+    // a whole-period shift, off-screen by construction — so the water is full
+    // of motes 18 km inshore too, and they still slide past you as you travel
+    // instead of being glued to the glass.
+    function update(t, viewY = 0, viewX = 0) {
       for (let i = 0; i < N; i++) {
-        pos[i * 3] = wrap(bx[i] + vx[i] * t, hw);
+        pos[i * 3] = viewX + wrap(bx[i] + vx[i] * t - viewX, hw);
         pos[i * 3 + 1] =
           viewY + wrap(by[i] + vy[i] * t + 9 * Math.sin(0.4 * t + ph[i]) - viewY, hh);
         pos[i * 3 + 2] = bz[i];
@@ -1083,7 +1213,9 @@ function boot() {
   // Built BEFORE the pipeline so renderer.compile() prewarms the two sheets'
   // materials with everything else (they reuse the one dot program — frame
   // graph rule 7 — but the prewarm still wants the objects in the scene).
-  const bootDepthM = depthFromHash(decodeURIComponent(location.hash.slice(1)));
+  const bootHash = decodeURIComponent(location.hash.slice(1));
+  const bootDepthM = depthFromHash(bootHash);
+  const bootShoreM = shoreFromHash(bootHash);
   if (plankton.enabled) {
     column = createColumn(scene, globalUniforms, {
       canvas,
@@ -1091,6 +1223,7 @@ function boot() {
       height: state.H,
       camDist,
       depth: bootDepthM != null ? bootDepthM : DEFAULT_DEPTH_M,
+      shore: bootShoreM != null ? bootShoreM : DEFAULT_SHORE_M,
       layers: true,
       nav: true,
       onCamera: () => applyCamera(),
@@ -1103,6 +1236,7 @@ function boot() {
     // drag (this fires on the SET-POINT, not on the eased position, so a dive
     // writes the hash once and not sixty times a second).
     column.onDepthChange(() => requestSave());
+    column.onShoreChange(() => requestSave()); // v3.7, the same contract
     applyCamera();
   }
 
@@ -1197,8 +1331,10 @@ function boot() {
   // cursor world point at the z=0 plane (1:1 CSS px) — 'follow' behavior.
   // v3.4: the screen is a porthole into a moving column, so the vertical half
   // of the mapping is relative to the camera's height, not to world y = 0.
+  // v3.7: and the horizontal half is relative to the camera's own X, for the
+  // same reason — the porthole now travels sideways too.
   window.addEventListener('pointermove', (e) => {
-    state.cursor.x = e.clientX - state.W / 2;
+    state.cursor.x = e.clientX - state.W / 2 + camX();
     state.cursor.y = state.H / 2 - e.clientY + camY();
   });
 
@@ -1216,6 +1352,10 @@ function boot() {
     camera,
     canvas,
     getCamDist: () => camDist,
+    // v3.7: a horizontal pan over the porthole ends in a click. The column
+    // holds `dragging()` true through that click so navigating the transect
+    // never deselects what you were looking at.
+    canSelect: () => !column || !column.dragging(),
     globalUniforms,
     pipeline,
     plankton,
@@ -1244,13 +1384,24 @@ function boot() {
     frameBoard();
   } else if (hashBoard.trim()) {
     controls.restore(hashBoard); // extended schema; plain name lists still work
-    if (bootDepthM == null) frameBoard();
+    // v3.7: a hash that pins only one axis still has the other framed on the
+    // board, so a v3.6 link (no 's=') opens looking at its own creatures rather
+    // than at the empty far end of the transect.
+    if (bootDepthM == null || bootShoreM == null) {
+      const keepD = bootDepthM != null ? column && column.targetDepth() : null;
+      const keepS = bootShoreM != null ? column && column.targetShore() : null;
+      frameBoard();
+      if (keepD != null) column.setDepth(keepD, { instant: true, source: 'hash' });
+      if (keepS != null) column.setShore(keepS, { instant: true, source: 'hash' });
+    }
   } else {
-    // The default board is a vertical TOUR, because that is what the column is
-    // for: a dolphin working the sunlit water, a jellyfish pulsing in the
-    // twilight 300 m down, kelp rooted on the abyssal plain at 1200 m. It boots
-    // framed on the shallowest of them, right under the shimmer.
-    loadBoard('dolphin,jellyfish,kelp', { travel: false });
+    // The default board is the TRANSECT, because that is what the world is now:
+    // a sea otter in the kelp 2 km out, a dolphin working the sunlit water over
+    // the shelf, a jellyfish pulsing in the twilight past the break, and an
+    // anglerfish out over the slope. It boots framed on the most of them, which
+    // puts you on the shelf with the coast to your left and the drop to your
+    // right — the two ends of the journey both visible as directions.
+    loadBoard('sea otter,dolphin,kelp,jellyfish,anglerfish', { travel: false });
     frameBoard();
   }
 
@@ -1270,6 +1421,11 @@ function boot() {
       // v3.4 — the vessel's depth instrument, down the left edge. It reads the
       // column and writes SET-POINTS to it; the column owns all easing.
       depthGauge: initDepthGauge(column),
+      // v3.7 — the vessel's CROSS-SHELF instrument, along the bottom edge. It
+      // draws the bathymetric profile as a dotted contour with the vessel's
+      // mark riding it, and writes set-points the same way the depth gauge
+      // does: the column owns every metre of easing on both axes.
+      shoreGauge: initShoreGauge(column),
       // v3.6 — the specimen inspector. Clicking a creature raises a modal with
       // the animal itself on the left, turnable to any angle, and its record
       // on the right. It runs its OWN small renderer on its own canvas, so the
@@ -1289,7 +1445,10 @@ function boot() {
       if (!snap || !column) return;
       for (const c of state.creatures) {
         if (c.id !== snap.id || c.state !== 'alive') continue;
-        ensureVisible(c.points.position.y, c.points.position.z, c.rad, { source: 'select' });
+        ensureVisible(c.points.position.y, c.points.position.z, c.rad, {
+          source: 'select',
+          x: c.points.position.x,
+        });
         break;
       }
     });
@@ -1304,8 +1463,10 @@ function boot() {
       state,
       getCamDist: () => camDist,
       getCamY: camY, // v3.4: a click maps to world at the PORTHOLE's height
+      getCamX: camX, // v3.7: ...and at its position along the transect
       globalUniforms,
       hitTest: (x, y) => controls.hitTest(x, y),
+      canDrop: () => !column || !column.dragging(),
     });
     capture = initCapture(canvas, pipeline);
   }
@@ -1425,6 +1586,39 @@ function boot() {
   const stats = { lastFrameCpuMs: 0 };
   let booted = false; // chrome is revealed after the first rendered frame
 
+  // ---- v3.7: the atmosphere follows the vessel along the transect ----------
+  //
+  // Two layers are authored around world x = 0 and would simply be left behind
+  // once the vessel travels 18,000 px inshore. They are moved by setting the
+  // object's own x, which costs nothing and touches no other module — but they
+  // are moved DIFFERENTLY, because they are different kinds of field:
+  //
+  //   * SEDIMENT is a periodic world lattice (that is the whole point of it —
+  //     a mote holds still in the water while you descend past it). Its x wrap
+  //     has period 2 x hw, so shifting the object by a WHOLE NUMBER of periods
+  //     is exactly invisible: the field is identical, and the motes keep their
+  //     parallax against the seabed. Same trick sediment.js already plays on
+  //     the vertical axis, applied from outside.
+  //   * CAUSTICS are already camera-anchored vertically (their surface plane is
+  //     computed as an offset from the porthole, not from world y = 0), so they
+  //     ride the camera horizontally too. Shafts are light on the surface film;
+  //     there is no parallax claim to break.
+  let sedPeriod = 0;
+  let sedShift = 0;
+  function followCamX(vx) {
+    const sed = atmosphere && atmosphere.sediment ? atmosphere.sediment.points : null;
+    if (sed) {
+      if (sedPeriod <= 0) sedPeriod = (state.W / 2 + 120) * 2;
+      const k = Math.round(vx / sedPeriod) * sedPeriod;
+      if (k !== sedShift) {
+        sedShift = k;
+        sed.position.x = k;
+      }
+    }
+    const caus = atmosphere && atmosphere.caustics ? atmosphere.caustics.mesh : null;
+    if (caus) caus.position.x = vx;
+  }
+
   // v3.4 per-frame scratch — filled once per frame, never allocated on the path
   const depthSample = createDepthSample();
   const STEER_SOFT = { scale: 0.25 }; // band hold while a summons has the floor
@@ -1437,6 +1631,11 @@ function boot() {
   let lastWeatherB = -1;
   let lastWeatherGain = -1;
   let lastAtmDepth = -1e9;
+  let lastBioGain = -1;
+  // v3.7 — set by test.setBioGain(), the layer's documented on/off A/B switch.
+  // Same contract as trailsLocked: once a harness takes the dimmer by hand the
+  // depth driver below stops writing it for the rest of the page's life.
+  let bioLocked = false;
 
   function frame(dt) {
     const t0 = nowMs();
@@ -1445,6 +1644,7 @@ function boot() {
     // ---- the vessel moves FIRST: everything below reads its new height -----
     if (column) column.update(dt, state.simT);
     const vy = camY();
+    const vx = camX();
     if (column) {
       const depthM = column.depth(); // eased position, not the set-point
       // Depth MULTIPLIES the already-crossfaded weather, it never replaces it
@@ -1477,6 +1677,17 @@ function boot() {
         lastAtmDepth = depthM;
         atmosphere.setDepth(depthM);
       }
+      // v3.7 — the one global dimmer on the bioluminescent layer. It is a
+      // GAUGE of the water, not part of any animal: a lure is nearly invisible
+      // against a sunlit inner shelf and unmistakable at 600 m, which is
+      // exactly what makes travelling inshore change what you can see. Because
+      // the shore end of the transect is also its shallow end, this is already
+      // correct along the horizontal axis with no horizontal term.
+      const bg = bioLocked ? lastBioGain : bioDepthGain(depthM);
+      if (bg !== lastBioGain) {
+        lastBioGain = bg;
+        setBioMaster(globalUniforms, bg);
+      }
     }
     if (gather) gather.update(state.simT, dt); // v3.2 beacon (injectable clock)
     // staggered formation ramp: promote due pending spawns
@@ -1494,7 +1705,11 @@ function boot() {
       const c = state.creatures[i];
       let visible = true;
       if (column && c.klass !== 'legacy') {
-        c.inReach = !beacon || Math.abs(c.py - beacon.y) <= reach;
+        // v3.7: reach is a distance in the water, not a difference in depth —
+        // a creature 20 km along the transect is not "near" the beacon just
+        // because it happens to be at the same depth.
+        c.inReach =
+          !beacon || (Math.abs(c.py - beacon.y) <= reach && Math.abs(c.px - beacon.x) <= reach * 1.8);
         // Hold station in the species' own water BEFORE the class motion reads
         // c.py — this is what makes creatures STAY at their depth while the
         // vessel travels past them. While the gather beacon owns a creature the
@@ -1503,7 +1718,11 @@ function boot() {
         if (c.ctrl.behavior !== 'sleep') {
           steerDepth(c, state.simT, dt, beacon && c.inReach ? STEER_SOFT : null);
         }
-        visible = column.inView(c.py, c.pz, c.rad, cullMargin);
+        // v3.7: cull on BOTH axes. A board now spreads across 36 km of ocean,
+        // so the horizontal test is doing most of the work — without it every
+        // creature on the transect would pay for its skeleton every frame while
+        // 18 of the 19 screens it lives on are off camera.
+        visible = column.inViewXY(c.px, c.py, c.pz, c.rad, cullMargin);
       } else {
         c.inReach = true;
       }
@@ -1526,16 +1745,23 @@ function boot() {
         if (!c.band || c.state !== 'alive') continue;
         if (summoning && c.inReach) continue;
         clampToBand(c, 25);
+        // v3.7 — the horizontal backstop, the exact twin of the one above. A
+        // reef fish cannot end up over the abyssal plain because a school
+        // shove or an hour of roaming carried it there.
+        clampToTransect(c, state.W);
       }
     }
     if (plankton.enabled) {
       // plankton time-warp: the weather's current speeds the drift up
       state.planktonT += dt * (state.planktonRate ?? 1);
-      plankton.update(state.planktonT, vy);
+      plankton.update(state.planktonT, vy, vx);
     }
     // Phase E atmosphere rides the same injectable clock; the weather's
     // current (px/s, set by controls.tick) drives shaft sway + mote drift
-    if (atmosphere) atmosphere.update(state.simT, state.current ?? 0);
+    if (atmosphere) {
+      atmosphere.update(state.simT, state.current ?? 0);
+      followCamX(vx);
+    }
     if (hashDirtyT >= 0 && state.simT - hashDirtyT >= 0.3) saveHash();
     globalUniforms.uFocusZ.value = state.focus
       ? camDist - state.focus.points.position.z
@@ -1639,6 +1865,16 @@ function boot() {
         trailsLocked = true;
         pipeline.setTrails(k);
       },
+      /** v3.7 — force the GLOBAL bioluminescent dimmer (biolum.js's
+       *  setBioMaster). This is the layer's documented A/B switch: 0 is
+       *  bit-for-bit v3.6, i.e. the same animal with its lamps off and its
+       *  counter-shading gone. Locks out the depth driver for the rest of the
+       *  page's life, exactly like setTrails. */
+      setBioGain: (g) => {
+        bioLocked = true;
+        lastBioGain = g;
+        setBioMaster(globalUniforms, g);
+      },
       // dev/harness lever check: walks the real F2 ladder to level n,
       // bypassing hysteresis (explicit call only — never fires on its own)
       setGovernorLevel: (n) => governor.force(n),
@@ -1658,6 +1894,34 @@ function boot() {
        *  use it to place the camera, never to test that the easing exists. */
       setDepth: (m, instant) =>
         column ? column.setDepth(m, { instant: !!instant, source: 'test' }) : null,
+      /** v3.7 — command a position along the transect, metres offshore. Same
+       *  contract as setDepth: `instant` bypasses the vessel's easing. */
+      setShore: (m, instant) =>
+        column ? column.setShore(m, { instant: !!instant, source: 'test' }) : null,
+      /** Eased (live) transect position, the set-point, the rate, the stops and
+       *  the LOCAL seabed depth under the vessel — the assertion surface for
+       *  "travelling inshore is a real journey over a real profile". */
+      shoreInfo: () => {
+        if (!column) return null;
+        const r = column.shoreRange();
+        const i = column.info();
+        return {
+          shore: column.shore(),
+          target: column.targetShore(),
+          rate: column.shoreRate(),
+          camX: column.camX(),
+          min: r.min,
+          max: r.max,
+          break: r.break,
+          breakDepth: r.breakDepth,
+          plain: r.plain,
+          zone: column.shoreZoneAt(column.shore()).id,
+          floorM: i.floorM,
+          seabedAtM: column.profileDepthAt(column.shore()),
+          depthMin: column.range().min,
+          depthMax: column.range().max,
+        };
+      },
       /** World px of water a gather summons carries through — creatures further
        *  than this from the beacon never hear it (see GATHER_REACH_SCREENS). */
       gatherReachPx: () => state.H * GATHER_REACH_SCREENS,
@@ -1696,6 +1960,17 @@ function boot() {
             y: c.py,
             floorY: seabedYAt(c.px, c.pz, c.homeM),
             visible: c.points.visible,
+            // ---- v3.7, the second axis ------------------------------------
+            x: c.px,
+            transectM: column ? column.worldXToTransect(c.px) : 0,
+            homeS: c.homeS ?? null,
+            // the mean seabed depth where this creature actually is: for a
+            // benthic or rooted thing this must equal its own depth
+            seabedAtM: column ? column.profileDepthAt(column.worldXToTransect(c.px)) : 0,
+            shoreZone: column ? column.shoreZoneAt(column.worldXToTransect(c.px)).id : null,
+            zones: (c.band && c.band.shoreZones) || null,
+            lit: !!(c.bio && c.bio.lit),
+            bioPattern: c.bio ? c.bio.patternName || c.bio.pattern : null,
           })),
     },
     stats,

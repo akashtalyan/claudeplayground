@@ -19,7 +19,7 @@
 //   §7  quantized rings — here they also carry the turtle's SCUTE bands
 //   §8  frozen RNG draw order; preset axes are preset-ONLY with neutral
 //       defaults, so adding a preset never shifts a single draw
-//   §10 local space, fixed bounding sphere (creatures.js boundR 3.0)
+//   §10 local space, fixed bounding sphere (creatures.js boundR 2.6)
 //
 // NORMALS — the three classes of the spec's table all appear here:
 //   body   TUBE   elliptical ring offset direction + taper-tilt correction
@@ -51,8 +51,15 @@ const W_RATIO = Math.SQRT2 * 1.618033988749895 * 0.5;
 // ---- morph axes -----------------------------------------------------------
 // SEED-DRAWN (7): elong, girth, flat, fore, hind, shellH, snout. A preset may
 // override the VALUE; the draw always happens (spec §8).
-// PRESET-ONLY: everything else, each with a neutral default, so a seed-only
-// tetrapod is bit-identical no matter how many presets are added later.
+// PRESET-ONLY: everything else. None of them CONSUMES A DRAW, which is the
+// spec §8 property that matters — a seed-only tetrapod's dot count, its
+// cross-ring shuffle and its twinkle phases are bit-identical no matter how
+// many presets are added later, and adding an axis can never renumber the
+// stream. Their defaults are not all NEUTRAL, though, and two deliberately are
+// not: `head` defaults to 0.5 and `counter` to 0.3, because every amniote in
+// the table has a skull and dark-above/pale-below shading, so a seed-only
+// tetrapod is meant to have them too. Those two therefore DO change the trunk
+// profile and the dot sizes of a seed-only build relative to v3.7.0.
 //
 //   elong      trunk elongation (length vs girth)
 //   girth      trunk fatness (vertical half-height)
@@ -106,10 +113,11 @@ export const TETRAPOD_MORPHS = {
   turtle: {
     elong: 0.92, girth: 0.7, flat: 1.2, tailFat: 0.18, neck: 0.55,
     snout: 0.85, snoutPow: 0.9,
+    head: 0.55, counter: 0.15,
     shellW: 2.4, shellH: 1.65, shellRise: 0.12, shellArc: 1.85, shellRidge: 0,
-    fore: 1.55, foreChord: 0.9, foreSweep: 0.3, foreTilt: 0.05, foreLat: 0.75,
-    foreDrop: 0.15, foreAmp: 0.78, foreRate: 1.0, foreFlex: 0.45,
-    forePitch: 0.55, foreRow: 0.18, foreAlt: 0,
+    fore: 1.55, foreChord: 0.9, foreSweep: 0.62, foreTilt: 0.05, foreLat: 0.75,
+    foreDrop: 0.15, foreAmp: 0.62, foreRate: 1.0, foreFlex: 0.45,
+    forePitch: 0.55, foreRow: 0.42, foreAlt: 0,
     hind: 0.5, hindChord: 1.05, hindSweep: 1.15, hindTilt: -0.28, hindAmp: 0.3,
     hindRate: 1.0, hindFlex: 0.4, hindPitch: 0.3, hindRow: 0.25, hindAlt: 0.5,
     tusk: 0.32, tuskSplay: 0.1, tuskDrop: 0.55, tuskThick: 1.0,
@@ -119,13 +127,14 @@ export const TETRAPOD_MORPHS = {
   leatherback: {
     elong: 1.05, girth: 0.68, flat: 1.15, tailFat: 0.2, neck: 0.45,
     snout: 0.95, snoutPow: 1.0,
+    head: 0.5, counter: 0.2,
     // seven keels: a cos(5θ) ridge over the ±1.78 rad arc reads as 5 crests on
     // the dome plus the two rim edges — the leatherback's whole silhouette
     shellW: 2.15, shellH: 1.6, shellRise: 0.1, shellArc: 1.78,
     shellRidge: 0.075, shellRidgeN: 5,
-    fore: 1.85, foreChord: 0.8, foreSweep: 0.34, foreTilt: 0.05, foreLat: 0.7,
-    foreDrop: 0.12, foreAmp: 0.85, foreRate: 0.85, foreFlex: 0.4,
-    forePitch: 0.55, foreRow: 0.15, foreAlt: 0,
+    fore: 1.85, foreChord: 0.8, foreSweep: 0.6, foreTilt: 0.05, foreLat: 0.7,
+    foreDrop: 0.12, foreAmp: 0.68, foreRate: 0.85, foreFlex: 0.4,
+    forePitch: 0.55, foreRow: 0.38, foreAlt: 0,
     hind: 0.45, hindChord: 1.0, hindSweep: 1.2, hindTilt: -0.3, hindAmp: 0.26,
     hindRate: 0.85, hindFlex: 0.4, hindPitch: 0.28, hindRow: 0.2, hindAlt: 0.5,
     tusk: 0.3, tuskSplay: 0.09, tuskDrop: 0.5, tuskThick: 1.0,
@@ -140,6 +149,7 @@ export const TETRAPOD_MORPHS = {
   seal: {
     elong: 1.28, girth: 1.0, flat: 0.95, tailFat: 0.3, neck: 0.25,
     snout: 0.8, snoutPow: 0.85,
+    head: 0.62, counter: 0.4,
     shellW: 0.62, shellH: 0.4, shellRise: 0.55, shellArc: 1.2, shellRidge: 0,
     fore: 0.62, foreChord: 1.0, foreSweep: 0.75, foreTilt: -0.1, foreLat: 0.9,
     foreDrop: 0.2, foreAmp: 0.4, foreRate: 0.8, foreFlex: 0.5,
@@ -154,6 +164,7 @@ export const TETRAPOD_MORPHS = {
   sealion: {
     elong: 1.2, girth: 0.95, flat: 0.92, tailFat: 0.22, neck: 0.75,
     snout: 0.9, snoutPow: 0.95,
+    head: 0.72, counter: 0.42,
     shellW: 0.6, shellH: 0.4, shellRise: 0.55, shellArc: 1.2, shellRidge: 0,
     fore: 1.35, foreChord: 0.85, foreSweep: 0.42, foreTilt: 0.02, foreLat: 0.85,
     foreDrop: 0.18, foreAmp: 0.85, foreRate: 1.15, foreFlex: 0.35,
@@ -167,6 +178,7 @@ export const TETRAPOD_MORPHS = {
   walrus: {
     elong: 1.15, girth: 1.45, flat: 1.05, tailFat: 0.3, neck: 0.12,
     snout: 0.6, snoutPow: 0.6,
+    head: 0.75, counter: 0.25,
     shellW: 0.68, shellH: 0.42, shellRise: 0.55, shellArc: 1.25, shellRidge: 0,
     fore: 0.95, foreChord: 1.05, foreSweep: 0.7, foreTilt: -0.08, foreLat: 0.9,
     foreDrop: 0.2, foreAmp: 0.5, foreRate: 0.65, foreFlex: 0.5,
@@ -184,8 +196,9 @@ export const TETRAPOD_MORPHS = {
   // feet trailing as rudders. foreFlex 0.12 is the lowest in the table and
   // foreRate 1.9 the highest — those two numbers ARE the penguin.
   penguin: {
-    elong: 1.15, girth: 1.0, flat: 0.82, tailFat: 0.28, neck: 0.4,
+    elong: 1.15, girth: 1.0, flat: 0.82, tailFat: 0.28, neck: 0.62,
     snout: 1.35, snoutPow: 1.5,
+    head: 0.9, counter: 1.0,
     shellW: 0.5, shellH: 0.35, shellRise: 0.6, shellArc: 1.05, shellRidge: 0,
     fore: 1.0, foreChord: 0.62, foreSweep: 0.5, foreTilt: 0.0, foreLat: 0.85,
     foreDrop: 0.05, foreAmp: 0.95, foreRate: 1.9, foreFlex: 0.12,
@@ -204,6 +217,7 @@ export const TETRAPOD_MORPHS = {
   otter: {
     elong: 1.05, girth: 1.0, flat: 0.95, tailFat: 0.82, neck: 0.5,
     snout: 0.75, snoutPow: 0.7,
+    head: 0.7, counter: 0.35,
     shellW: 0.55, shellH: 0.35, shellRise: 0.55, shellArc: 1.1, shellRidge: 0,
     fore: 0.42, foreChord: 1.2, foreSweep: 0.55, foreTilt: -0.15, foreLat: 0.9,
     foreDrop: 0.3, foreAmp: 0.45, foreRate: 1.3, foreFlex: 0.6,
@@ -223,6 +237,7 @@ export const TETRAPOD_MORPHS = {
   dugong: {
     elong: 1.35, girth: 1.28, flat: 1.05, tailFat: 0.45, neck: 0.1,
     snout: 0.65, snoutPow: 0.55,
+    head: 0.55, counter: 0.2,
     shellW: 0.6, shellH: 0.36, shellRise: 0.55, shellArc: 1.15, shellRidge: 0,
     fore: 0.72, foreChord: 1.0, foreSweep: 0.85, foreTilt: -0.12, foreLat: 0.9,
     foreDrop: 0.22, foreAmp: 0.3, foreRate: 0.55, foreFlex: 0.5,
@@ -237,6 +252,7 @@ export const TETRAPOD_MORPHS = {
   manatee: {
     elong: 1.3, girth: 1.34, flat: 1.05, tailFat: 0.7, neck: 0.08,
     snout: 0.6, snoutPow: 0.5,
+    head: 0.55, counter: 0.2,
     shellW: 0.62, shellH: 0.36, shellRise: 0.55, shellArc: 1.15, shellRidge: 0,
     fore: 0.78, foreChord: 1.05, foreSweep: 0.8, foreTilt: -0.14, foreLat: 0.9,
     foreDrop: 0.24, foreAmp: 0.32, foreRate: 0.5, foreFlex: 0.55,
@@ -256,13 +272,33 @@ export const TETRAPOD_MORPHS = {
 // which passes only a seed — gets species shapes for free. Multi-word and
 // plural spellings are registered explicitly because the clean name keeps its
 // spaces ("sea turtle" hashes differently from "turtle").
+//
+// EVERY SPELLING IN lexicon.js's LEX.tetrapod MUST APPEAR BELOW (v3.7 fix).
+// The v3.7 lexicon words are the CLOSED-UP forms — 'emperorpenguin',
+// 'littlepenguin', 'leatherbackturtle', 'harbourseal', 'greenturtle' — and the
+// table only carried the spaced ones, so those names resolved with morph:null
+// and were built as SEED-ONLY tetrapods: an emperor penguin got a random
+// generic body with none of the numbers (foreFlex 0.12, foreRate 1.9, snout
+// 1.35) that make a penguin a penguin. That is why 'emperor penguin' rendered
+// as a fat ovoid while 'penguin' rendered as a bird. lexicon.js normalises a
+// typed "emperor penguin" to the same closed-up word, so registering the
+// closed-up form fixes both the typed and the saved-board paths at once.
 const MORPH_ALIASES = {
-  turtle: ['turtle', 'sea turtle', 'seaturtle', 'green turtle', 'loggerhead', 'hawksbill', 'terrapin'],
-  leatherback: ['leatherback', 'leatherback turtle'],
-  seal: ['seal', 'harbor seal', 'harbour seal', 'grey seal', 'gray seal', 'elephant seal', 'monk seal', 'fur seal', 'pinniped'],
+  turtle: [
+    'turtle', 'sea turtle', 'seaturtle', 'green turtle', 'greenturtle',
+    'loggerhead', 'hawksbill', 'hawksbill turtle', 'hawksbillturtle', 'terrapin',
+  ],
+  leatherback: ['leatherback', 'leatherback turtle', 'leatherbackturtle'],
+  seal: [
+    'seal', 'harbor seal', 'harborseal', 'harbour seal', 'harbourseal',
+    'grey seal', 'gray seal', 'elephant seal', 'monk seal', 'fur seal', 'pinniped',
+  ],
   sealion: ['sealion', 'sea lion'],
   walrus: ['walrus', 'walruses'],
-  penguin: ['penguin', 'emperor penguin', 'king penguin'],
+  penguin: [
+    'penguin', 'emperor penguin', 'emperorpenguin', 'king penguin',
+    'little penguin', 'littlepenguin', 'fairy penguin', 'fairypenguin',
+  ],
   otter: ['otter', 'sea otter', 'seaotter'],
   dugong: ['dugong'],
   manatee: ['manatee', 'sea cow', 'seacow'],
@@ -375,6 +411,16 @@ export function makeTetrapod(seed, opts = {}) {
     tailFat: p?.tailFat ?? 0.3,
     neck: p?.neck ?? 0.35,
     snoutPow: p?.snoutPow ?? 1,
+    // head-lobe amount (see the trunk profile): 0 is the pure v3.7.0 taper,
+    // 1 a skull half again as thick as the barrel behind it. Every amniote in
+    // the table has one, so the neutral default is a real head.
+    head: p?.head ?? 0.5,
+    // counter-shading, 0..1: how much dimmer the DORSAL dots are than the
+    // ventral ones. A penguin is the extreme case and it is not decoration —
+    // dark-above/pale-below is the single strongest read on a marine bird or
+    // mammal, and in a dotted monochrome medium the only way to say it is dot
+    // presence. 0 leaves every dot the size it had.
+    counter: p?.counter ?? 0.3,
     shellW: p?.shellW ?? 0.62,
     shellRise: p?.shellRise ?? 0.55,
     shellArc: p?.shellArc ?? 1.2,
@@ -422,7 +468,7 @@ export function makeTetrapod(seed, opts = {}) {
 
   // ---- dimensions. Elongation trades girth for length; the uniform norm
   // shrink keeps the whole animal — flipper tips and tusk points included —
-  // inside the registry bounding sphere (boundR 3.0, spec §10) without
+  // inside the registry bounding sphere (boundR 2.6, spec §10) without
   // distorting the morph's proportions.
   let bodyLen = bodyLen0 * M.elong;
   let baseRadius = (baseRadius0 * M.girth) / Math.pow(M.elong, 0.5);
@@ -491,6 +537,22 @@ export function makeTetrapod(seed, opts = {}) {
   // that either tapers away (turtle) or holds its girth (otter's tail).
   const hL = 0.13 * M.snout; //                head-taper span, fraction of body
   const hPow = 0.5 * M.snout * M.snoutPow; //  taper sharpness (decoupled)
+  // ---- A HEAD (v3.7 fix) ---------------------------------------------------
+  // `nose` on its own is a MONOTONE taper: the front of the animal went from
+  // nothing to full girth inside ~5% of the body and never came back down, so
+  // there was no skull and no neck — which is most of why a turtle rendered as
+  // an almond and a penguin as a rugby ball. A tetrapod's head is a lobe with a
+  // WAIST behind it, and that break is the single most recognisable thing about
+  // the body plan. Two shapes now sit on top of the taper:
+  //   headBulb  a Gaussian lobe at headAt, standing proud of the barrel
+  //   neck      the existing pinch, moved to sit immediately BEHIND the lobe
+  //             (it used to be pinned at f = 0.2, well aft of the skull, where
+  //             it read as a dent in the shoulder) and given real depth
+  // `head` is preset-only with a neutral default, so no RNG draw moves (spec 8).
+  const headAt = Math.min(0.11, 0.045 + 0.05 * M.snout);
+  const headW = 0.052 + 0.02 * M.snout;
+  const neckAt = headAt + 0.075 + 0.03 * M.neck;
+  const neckW = 0.05;
   const prof = new Float32Array(ringCount);
   const rNom = new Float32Array(ringCount);
   for (let i = 0; i < ringCount; i++) {
@@ -498,9 +560,11 @@ export function makeTetrapod(seed, opts = {}) {
     // exponent 0.62 (fish uses 0.8): a tetrapod trunk is a rounder barrel
     const base = Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.02 + 0.03)), 0.62);
     const nose = 0.14 + 0.86 * Math.pow(Math.min(1, f / hL), hPow);
-    const nk = (f - 0.2) / 0.1;
-    const neck = 1 - 0.22 * M.neck * Math.exp(-nk * nk);
-    let v = base * nose * neck;
+    const hf = (f - headAt) / headW;
+    const head = 1 + 1.15 * M.head * Math.exp(-hf * hf);
+    const nk = (f - neckAt) / neckW;
+    const neck = 1 - 0.46 * M.neck * Math.exp(-nk * nk);
+    let v = base * nose * head * neck;
     // rear floor: blend toward a held girth over the back half
     const w = f > 0.55 ? Math.pow((f - 0.55) / 0.45, 2) : 0;
     v = v * (1 - w) + w * (0.44 * M.tailFat + v * (1 - 0.44 * M.tailFat));
@@ -692,18 +756,72 @@ export function makeTetrapod(seed, opts = {}) {
         tkD[o] = dF;
         tkD[o + 1] = dV;
         tkD[o + 2] = dH;
-        // r1 = normalize(dir × F_axis-ish): use the basis vector least aligned
-        let ax = 0;
-        let ay = 0;
-        let az = 0;
-        const ad = Math.abs(dF);
-        if (ad <= Math.abs(dV) && ad <= Math.abs(dH)) ax = 1;
-        else if (Math.abs(dV) <= Math.abs(dH)) ay = 1;
-        else az = 1;
-        const dp = ax * dF + ay * dV + az * dH;
-        let e1 = ax - dp * dF;
-        let e2 = ay - dp * dV;
-        let e3 = az - dp * dH;
+        // ---- ring frame: TRANSPORTED, not re-chosen (geometry-spec §2) -----
+        // The argmin-basis Gram-Schmidt below is the SEED frame and is run at
+        // station 0 only. Re-running it per station — which is what this block
+        // used to do — is not a rotation-minimizing frame: the argmin flips as
+        // soon as the centreline bends past the basis vector it picked, and the
+        // ring's angular phase jumps with it (measured: 93° between stations 0
+        // and 1 on the walrus, 102° on the dugong and the manatee). The normals
+        // stayed correct, so nothing looked wrong at nTu=7 × nTv=5 — but the
+        // defect DIVERGES under refinement, so it would appear the moment tusk
+        // resolution was raised, and the module's contract header claims §2.
+        // Every later station rotates the previous frame by the minimal
+        // rotation taking d_prev to d_cur, which is what double reflection
+        // computes and is exact for a discrete curve.
+        let e1;
+        let e2;
+        let e3;
+        if (j === 0) {
+          // seed: Gram-Schmidt against whichever basis vector is least aligned
+          let ax = 0;
+          let ay = 0;
+          let az = 0;
+          const ad = Math.abs(dF);
+          if (ad <= Math.abs(dV) && ad <= Math.abs(dH)) ax = 1;
+          else if (Math.abs(dV) <= Math.abs(dH)) ay = 1;
+          else az = 1;
+          const dp = ax * dF + ay * dV + az * dH;
+          e1 = ax - dp * dF;
+          e2 = ay - dp * dV;
+          e3 = az - dp * dH;
+        } else {
+          const p = ((s * nTu) + j - 1) * 3;
+          const pF = tkD[p];
+          const pV = tkD[p + 1];
+          const pH = tkD[p + 2];
+          const r1 = tkR1[p];
+          const r2 = tkR1[p + 1];
+          const r3 = tkR1[p + 2];
+          // Rodrigues about normalize(d_prev × d_cur) by the angle between them
+          const kx = pV * dH - pH * dV;
+          const ky = pH * dF - pF * dH;
+          const kz = pF * dV - pV * dF;
+          const sn = Math.sqrt(kx * kx + ky * ky + kz * kz);
+          if (sn < 1e-9) {
+            e1 = r1;
+            e2 = r2;
+            e3 = r3;
+          } else {
+            const ik = 1 / sn;
+            const ux = kx * ik;
+            const uy = ky * ik;
+            const uz = kz * ik;
+            const cs = pF * dF + pV * dV + pH * dH;
+            const th = Math.atan2(sn, cs);
+            const c = Math.cos(th);
+            const s2 = Math.sin(th);
+            const ud = ux * r1 + uy * r2 + uz * r3;
+            e1 = r1 * c + (uy * r3 - uz * r2) * s2 + ux * ud * (1 - c);
+            e2 = r2 * c + (uz * r1 - ux * r3) * s2 + uy * ud * (1 - c);
+            e3 = r3 * c + (ux * r2 - uy * r1) * s2 + uz * ud * (1 - c);
+          }
+          // re-orthogonalize against d_cur; floating point drifts over 7 hops
+          const dp2 = e1 * dF + e2 * dV + e3 * dH;
+          e1 -= dp2 * dF;
+          e2 -= dp2 * dV;
+          e3 -= dp2 * dH;
+        }
         const il = 1 / Math.sqrt(e1 * e1 + e2 * e2 + e3 * e3);
         e1 *= il;
         e2 *= il;
@@ -1127,39 +1245,74 @@ export function makeTetrapod(seed, opts = {}) {
 
   function init({ aSize, aTw, aRing }) {
     let d = 0;
+    // ---- DOT PRESENCE IS THE ONLY CONTRAST THIS MEDIUM HAS -----------------
+    // v3.7.0 gave the trunk, the carapace and the flippers near-identical dot
+    // sizes, so at the ~150 px an animal actually occupies they composited into
+    // one undifferentiated cloud: the shell had no edge against the back under
+    // it and a flipper mid-stroke read as scattered spray beside the body
+    // rather than as a paddle. Nothing here moves a dot — every number below
+    // is aSize only, so positions, normals, the RNG draw order and the dot
+    // count are all untouched (spec 8/9). What changes is which structure the
+    // eye picks out first, which for a shelled or flippered animal IS the
+    // silhouette.
+    //
+    // shellDom: is this dome a real carapace (turtle 2.4x1.65 -> 1) or just the
+    // rounded dorsal contour every other morph carries (seal 0.62x0.4 -> 0.09)?
+    const shellDom = Math.min(1, Math.max(0, (SHW * SHH - 0.32) / 1.9));
     // trunk
     for (let i = 0; i < ringCount; i++) {
       const rf = i / (ringCount - 1);
       const sz = 0.55 + 0.45 * prof[i];
+      const row = i * dotsPerRing;
       for (let j = 0; j < dotsPerRing; j++, d++) {
         const sl = perm[d];
-        aSize[sl] = sz * sizeJit[d];
+        // cosT is the ring angle's VERTICAL component in the station frame:
+        // +1 straight up the animal's back, -1 straight down its belly.
+        const up = cosT[row + j];
+        // counter-shading, and the shell's own shadow: under a real carapace
+        // the back is not visible at all, so its dots step aside for the dome
+        // instead of speckling through it.
+        const shade = 1 - M.counter * 0.42 * Math.max(0, up)
+          - shellDom * 0.5 * Math.max(0, up);
+        aSize[sl] = sz * Math.max(shade, 0.3) * sizeJit[d];
         aTw[sl] = twPhase[d];
         aRing[sl] = rf; // head→tail fraction, ring-quantized
       }
     }
     // carapace — aRing follows the scute BANDS, so twinkle/iridescence read
-    // as plate rows rather than as noise on a dome
+    // as plate rows rather than as noise on a dome. A true carapace is the
+    // animal's DOMINANT surface and gets the biggest dots on the body; the
+    // crown is weighted over the rim so the dome has a gradient of its own and
+    // reads as curved rather than as a flat plate.
     for (let m = 0; m < nShL; m++) {
       const rf = shI[m] / (ringCount - 1);
+      const ao = m * nShA;
       for (let k = 0; k < nShA; k++, d++) {
         const sl = perm[d];
-        aSize[sl] = 0.72 * sizeJit[d];
+        const crown = 0.72 + 0.28 * Math.abs(shCa[ao + k]); // 1 at the crest
+        aSize[sl] = (0.7 + 0.5 * shellDom) * crown * sizeJit[d];
         aTw[sl] = twPhase[d];
         aRing[sl] = rf;
       }
     }
-    // flippers
+    // flippers — a blade is read from its EDGES. The chordwise weighting puts
+    // the presence on the leading edge and lets the middle of the blade fall
+    // away, which is what turns a patch of dots into a paddle with a stroke;
+    // the spanwise taper keeps the tip lighter than the shoulder.
     for (let pr = 0; pr < 2; pr++) {
       const nU = pr === 0 ? nFu : nHu;
       const nV = pr === 0 ? nFv : nHv;
+      const pv = pr === 0 ? pvF : pvH;
       const rf = pairI[pr] / (ringCount - 1);
       for (let side = 0; side < 2; side++) {
         for (let m = 0; m < nU; m++) {
           const fm = m / (nU - 1);
           for (let n = 0; n < nV; n++, d++) {
             const sl = perm[d];
-            aSize[sl] = 0.58 * (1 - 0.3 * fm) * sizeJit[d];
+            // pv runs −0.35 (leading edge) to +0.65 (trailing edge)
+            const e = pv[n] + 0.35; // 0 .. 1 across the chord
+            const edge = 0.55 + 0.45 * Math.abs(2 * e - 1); // bright at both edges
+            aSize[sl] = 0.82 * (1 - 0.34 * fm) * edge * sizeJit[d];
             aTw[sl] = twPhase[d];
             aRing[sl] = rf;
           }

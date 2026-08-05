@@ -147,6 +147,31 @@ const float BIO_MAX = 3.0;
 // square of this — which is why it is small, and why it reaches only the few
 // dots at the lure's own station.
 const float BIO_LURE_PX = 1.75;
+// ...and the other half of "reads as INTENSE AGAINST BLACK", which v3.7 shipped
+// without and which is why the whole layer measured invisible: how much of the
+// REFLECTED term survives on the parts of a light-making animal that are not
+// making light.
+//
+// THE FAILURE THIS FIXES. Emission was added on top of a 'lit' value that is
+// already at the tonemap's white point for these creatures — the directional
+// and ambient terms do not fall off with depth, so a lanternfish at 126 m
+// accumulates exactly as much reflected light as a cod at 175 m, and a dotted
+// body of overlapping additive sprites saturates ACES long before the
+// photophores get a word in. Turning the entire layer off changed the frame by
+// under 1.5%, and a non-luminous control was indistinguishable from a lantern-
+// fish side by side. Adding MORE emission cannot fix that: there is no headroom
+// above white. Taking light AWAY from everything that is not a photophore can,
+// and it is also the truth — at 600 m there is nothing to reflect, and what you
+// see of an animal down there is its lamps and almost nothing else.
+//
+// Scoped so it cannot leak: the term rides uBioGain, which is 0 for every
+// creature the integrator does not light and is the layer's documented on/off
+// A/B switch — so uBioGain = 0 stays bit-for-bit v3.6, including the ?scene=
+// spikes, and a creature with uBio.x == 0 never enters the block at all. It
+// also rides uBioGain's own DEPTH curve (biolum.js bioDepthGain), so the animal
+// counter-shades as the sun leaves: nearly no effect on a sunlit shelf, full
+// effect in the midnight zone. That is the same physics from the other end.
+const float BIO_DARK = 0.15;
 
 // A latitude band on the body: how close this dot's local normal is to 'aim'.
 // aim (0,-1,0) is the belly (counter-illumination's home), (0,0,±1) a flank,
@@ -349,6 +374,14 @@ void main() {
 	// the photophore are different organs.
 	if ( uBio.x > 0.0 ) {
 		float amp = uBio.x * uBioGain;
+		// Counter-shade BEFORE emitting (see BIO_DARK): the reflected term is
+		// scaled toward BIO_DARK everywhere this dot is NOT part of a pattern,
+		// so the lamps have somewhere to be brighter THAN. At uBioGain 0 the
+		// factor is exactly 1.0 and at a fully-lit dot it is exactly 1.0, so
+		// neither the off state nor a photophore is touched.
+		float g = clamp( uBioGain, 0.0, 1.0 );
+		float pat = clamp( bioBody + bioLure, 0.0, 1.0 );
+		lit *= 1.0 - g * ( 1.0 - BIO_DARK ) * ( 1.0 - pat );
 		lit += min( uBioColor * ( amp * bioBody ) + uBioLureColor * ( amp * bioLure ), vec3( BIO_MAX ) );
 	}
 

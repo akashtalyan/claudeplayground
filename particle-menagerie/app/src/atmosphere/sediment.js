@@ -254,6 +254,11 @@ export function create( scene, globalUniforms, opts = {} ) {
 		dispose,
 		getIntensity: () => intensity,
 		getDepth: () => depthM,
+		// v3.7 — the object itself, so the integrator can carry this layer along
+		// the vessel's new HORIZONTAL axis (main.js followCamX). Read-only by
+		// convention: nothing in here reads .position, so setting it is a pure
+		// world offset applied by the model matrix.
+		points,
 	};
 }
 

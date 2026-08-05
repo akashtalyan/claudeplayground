@@ -117,8 +117,10 @@ export function initGather({
   state,
   getCamDist,
   getCamY,
+  getCamX,
   globalUniforms,
   hitTest,
+  canDrop,
   zRange = [-340, 40],
   z = BEACON_Z,
   hold = HOLD_S,
@@ -318,7 +320,11 @@ export function initGather({
     const camDist = getCamDist();
     const vd = (camDist - beaconZ) / camDist;
     const camY = getCamY ? getCamY() : 0;
-    return setPoint((cssX - state.W / 2) * vd, (state.H / 2 - cssY) * vd + camY, beaconZ);
+    // v3.7: the horizontal half is relative to the vessel's own X for the same
+    // reason the vertical one is relative to its height — the porthole travels
+    // sideways through 36 km of ocean now.
+    const camX = getCamX ? getCamX() : 0;
+    return setPoint((cssX - state.W / 2) * vd + camX, (state.H / 2 - cssY) * vd + camY, beaconZ);
   }
 
   // Graceful by default: the beacon dissolves and the crowd eases back over
@@ -637,6 +643,7 @@ export function initGather({
   // ---- click wiring (chrome sits above the canvas, so its clicks never
   // land here; creature clicks are filtered via the provided hit-test) ------
   const onClick = (e) => {
+    if (canDrop && !canDrop()) return; // v3.7: a pan is not a summons
     if (hitTest && hitTest(e.clientX, e.clientY)) return; // creature click = selection's job
     setPointFromScreen(e.clientX, e.clientY);
   };

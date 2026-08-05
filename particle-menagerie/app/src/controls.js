@@ -511,6 +511,10 @@ export function createControls(engine) {
   }
 
   canvas.addEventListener('click', (e) => {
+    // v3.7: a horizontal PAN over the porthole ends in a click event. The
+    // column keeps `dragging()` true through that click, so navigation never
+    // silently deselects the creature you were looking at.
+    if (engine.canSelect && !engine.canSelect()) return;
     const hit = hitTest(e.clientX, e.clientY);
     select(hit ? hit.id : null); // empty-water click deselects
   });
@@ -680,10 +684,12 @@ export function createControls(engine) {
       if (!s) continue;
       if (s.startsWith('p=')) {
         presetName = s.slice(2);
-      } else if (s.startsWith('d=')) {
-        // v3.4 — the vessel's depth. main.js owns it (it owns the column and
-        // reads this segment before the engine even exists); skipped here so it
-        // is never mistaken for a creature name.
+      } else if (s.startsWith('d=') || s.startsWith('s=')) {
+        // v3.4 — the vessel's depth ('d='), v3.7 — its position along the
+        // transect ('s=', metres offshore). main.js owns both (it owns the
+        // column and reads these segments before the engine even exists);
+        // skipped here so neither is ever mistaken for a creature name. Leaving
+        // 's=' out of this list summoned a creature called "s=9000".
         continue;
       } else {
         const m = /^(\d+)=(.*)$/.exec(s);

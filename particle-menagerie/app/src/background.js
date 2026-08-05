@@ -142,7 +142,25 @@ void main() {
 	// full strength only in the last few percent of the frame, so the floor
 	// arrives as a glow you descend INTO. The dotted seabed sheet (column.js)
 	// carries the actual surface; this is only the air over it.
-	float fm = smoothstep( uFloorTop, uFloorTop - 0.44, vUv.y );
+	// v3.7 FIX ROUND 2 — the ramp used to be a FIXED 0.44 of frame height below
+	// uFloorTop, which silently made the haze's strength a second function of
+	// its own height. Over the plain uFloorTop is 0.46 and the ramp finished
+	// inside the frame (fm = 1 at the bottom edge); at the shelf break the haze
+	// top is at 0.19, the 0.44 ramp ran far past the bottom of the frame, and
+	// fm reached only 0.18 there — so the term floorHaze() had just computed
+	// (0.475 at the break) was multiplied by 0.18, emitting 0.0036 linear,
+	// under the trails pass's 1.5/255 epsilon. It was computed, uniformed,
+	// drawn and then subtracted to black frame by frame: 13 km of the crossing
+	// with no ground in it at all.
+	//
+	// The ramp's BOTTOM is the bottom of the frame, always; only its TOP moves
+	// with proximity. Strength at the bottom edge is then the haze value alone,
+	// which is the one thing that was ever supposed to decide it. Over the
+	// plain this is the same ramp it always was (0.46 -> -0.02 instead of
+	// 0.46 -> 0.02: full at the edge either way). min() keeps the lower edge
+	// strictly below the upper one, so a not-yet-present floor (uFloorTop < 0,
+	// where uFloor is the zero vector anyway) still contributes exactly zero.
+	float fm = smoothstep( uFloorTop, min( uFloorTop, 0.0 ) - 0.02, vUv.y );
 	fm *= fm;
 	col += uFloor * ( fm + 0.14 * fm * smoothstep( 0.26, 0.0, vUv.y ) );
 
@@ -221,7 +239,12 @@ export function createBackground(scene, opts = {}) {
     // The seabed haze is placed by proximity, not by the plane's z=0 position
     // (see the shader): off-frame while the plain is far, climbing to just
     // under the horizon once the vessel is hovering over it.
-    u.uFloorTop.value = -0.05 + 0.51 * sample.floor;
+    // ...and its TOP is proximity alone (sample.floorTop), never its strength.
+    // Feeding sample.floor in here made how high the ground sits a function of
+    // how much silt is over it: at the shelf break, hovering 50 m off the bed,
+    // the ground came out at 23% of frame while the identical geometry over
+    // the plain put it at 46%.
+    u.uFloorTop.value = -0.05 + 0.51 * sample.floorTop;
     u.uAmbient.value.set(
       SURFACE_LIGHT[0] * wr,
       SURFACE_LIGHT[1] * wg,

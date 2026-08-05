@@ -52,7 +52,13 @@ export const REGISTRY = {
   },
   ray: {
     maker: makeRay, class: 'swimmer', boundR: 3.4,
-    scale: 50, dotPx: 3.37, alpha: 1.5, speed: 24,
+    // v3.7 fix round 2 — dotPx 3.37 -> 2.57 and alpha 1.5 -> 1.05 (see the
+    // grid note in geometry/ray.js). These were the two largest values in the
+    // table: the widest sprite laid on the finest grid, at 1.4x the next
+    // brightest archetype's per-dot gain. On a flat sheet with no self-
+    // occlusion that is a solid white body, not a dotted one. alpha lands
+    // beside the fish (1.1), the archetype whose read the ray should match.
+    scale: 50, dotPx: 2.57, alpha: 1.05, speed: 24,
     yawOffset: -HPI, pitch: -0.85, spin: 0,
     band: ARCH_BANDS.ray,
   },
@@ -110,10 +116,14 @@ export const REGISTRY = {
     // plus 60 seed-only builds × sway {0, 1, 2.4} × 240 frames — 1.28× margin
     // (geometry-spec §10, fixed local bounding sphere).
     //
-    // Air-breathers live at the ceiling of the column and must surface.
-    // depthbands.js has no `tetrapod` ARCH_BAND yet, so the turtle species
-    // band (1–130 m, "must reach air") is the archetype default — see the
-    // handoff note about adding seal / penguin / otter / walrus bands.
+    // Air-breathers live at the ceiling of the column and must surface. The
+    // archetype default is the TURTLE SPECIES band (1–130 m, "must reach air")
+    // rather than ARCH_BANDS.tetrapod (pelagic 0–130 m, prefer 22 m), which
+    // depthbands.js does now define: main.js prefers res.band from the lexicon
+    // and every LEX.tetrapod word carries its own researched species band, so
+    // this default is only ever reached by an unnamed tetrapod. Kept on the
+    // turtle band deliberately — changing it would move nothing that has a
+    // name and would silently re-place anything that does not.
     band: bandFor('turtle'),
   },
 };

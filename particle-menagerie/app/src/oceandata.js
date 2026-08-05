@@ -194,9 +194,19 @@ function buildRecord(word, key) {
     group: !!s.group,
     groupNote: s.groupNote || null,
     groupTaxon: s.groupTaxon || null,
-    groupShown: s.group ? (s.commonName || s.groupReferent || s.scientific) : null,
+    // groupReferent ONLY. It is the one field that names the one organism the
+    // figures describe, and its ABSENCE is the signal that they are group-wide
+    // — so it cannot be defaulted. v3.7 fix round 2: it used to fall back to
+    // commonName and then to `scientific`, and for 31 records `scientific` IS
+    // the referent's binomial (Placopecten magellanicus, Mnemiopsis leidyi),
+    // so groupShown came out equal to scientific, statRows' `named` test went
+    // false, and the row printed "figures are for the group" directly above a
+    // note saying the figures are one named species'. commonName was no better
+    // — it is usually the lexicon word again ("sea turtle"), a circular row.
+    // Every record that HAS a referent now carries it in the data.
+    groupShown: s.group ? (s.groupReferent || null) : null,
     groupLine: s.group
-      ? `${word} — ${(s.groupTaxon || '').replace(/^"[^"]*"\s+/, '').replace(/\.$/, '')}; shown: ${s.commonName || s.groupReferent || s.scientific}`
+      ? `${word} — ${(s.groupTaxon || '').replace(/^"[^"]*"\s+/, '').replace(/\.$/, '')}${s.groupReferent ? `; shown: ${s.groupReferent}` : ''}`
       : null,
 
     // rule 4 — habitat is stated whenever it is not marine
@@ -229,8 +239,75 @@ function buildRecord(word, key) {
     sources: Object.freeze((s.sources || []).slice()),
     dataset: s.dataset,
     band: correctedBandFor(word) || correctedBandFor(key) || null,
+
+    // ---- v3.7: WHERE, not just how deep -----------------------------------
+    // Rule 1 still holds: a field the research left out is absent here, not
+    // filled. `shoreZone` is undefined for the 81 records the cross-shelf pass
+    // never covered and an array for the 72 it did — statRows omits the row either
+    // way, and nothing downstream may substitute a guess.
+    shoreZone: s.shoreZone ? Object.freeze(s.shoreZone.slice()) : null,
+    shoreZoneLabel: s.shoreZone && s.shoreZone.length
+      ? s.shoreZone.map((z) => SHORE_ZONE_LABELS[z] || z).join(', ')
+      : null,
+    // benthic is a THREE-state field: true, false, or "not researched". The
+    // difference matters — an unresearched species is not "not benthic".
+    benthic: s.benthic === undefined ? null : !!s.benthic,
+    locationNote: s.locationNote || null,
+    // ...and so is bioluminescent. `false` here is a researched false: a
+    // barreleye watches other animals' light and makes none of its own.
+    bioluminescent: s.bioluminescent === undefined ? null : !!s.bioluminescent,
+    bioNote: s.bioNote || null,
+    bioColour: s.bioColour || null,
+    // vertical migration, when the sources describe one
+    diel: s.diel || null,
+    dayDepthMinM: s.dayDepthMinM == null ? null : s.dayDepthMinM,
+    dayDepthMaxM: s.dayDepthMaxM == null ? null : s.dayDepthMaxM,
+    nightDepthMinM: s.nightDepthMinM == null ? null : s.nightDepthMinM,
+    nightDepthMaxM: s.nightDepthMaxM == null ? null : s.nightDepthMaxM,
+    dayLabel: s.dayDepthMinM == null ? null : formatDepthRange(s.dayDepthMinM, s.dayDepthMaxM),
+    nightLabel: s.nightDepthMinM == null ? null : formatDepthRange(s.nightDepthMinM, s.nightDepthMaxM),
   };
   return Object.freeze(rec);
+}
+
+/** The cross-shelf vocabulary, in the words a readout should print. */
+export const SHORE_ZONE_LABELS = Object.freeze({
+  intertidal: 'intertidal',
+  nearshore: 'nearshore',
+  shelf: 'continental shelf',
+  shelfbreak: 'shelf break',
+  slope: 'continental slope',
+  oceanic: 'open ocean',
+  abyssal: 'abyssal plain',
+});
+
+/** The researched shore zones for a name, or null. */
+export function shoreZonesFor(nameOrWord) {
+  const rec = statsFor(nameOrWord);
+  return rec ? rec.shoreZone : null;
+}
+
+/** True / false / null — see the three-state note in buildRecord. */
+export function isBenthic(nameOrWord) {
+  const rec = statsFor(nameOrWord);
+  return rec ? rec.benthic : null;
+}
+
+/** True / false / null. A researched `false` is an answer, not a gap. */
+export function isBioluminescent(nameOrWord) {
+  const rec = statsFor(nameOrWord);
+  return rec ? rec.bioluminescent : null;
+}
+
+/** The diel-migration sentence for a name, or null when none was researched. */
+export function dielFor(nameOrWord) {
+  const rec = statsFor(nameOrWord);
+  return rec && rec.diel ? rec.diel : null;
+}
+
+/** Every species key whose record carries a researched shore zone. */
+export function zonedKeys() {
+  return Object.keys(SPECIES).filter((k) => SPECIES[k].shoreZone);
 }
 
 /**
@@ -312,17 +389,45 @@ export function statRows(nameOrWord, opts) {
     rows.push(Object.freeze({ key, label, value, note: note || null }));
   };
 
-  // identity
-  push('species', 'species', rec.scientific, rec.commonName && !rec.group ? rec.commonName : null);
-  // rule 3 — the value names the organism the figures describe; the note is
-  // the sourced sentence saying what the word really covers
-  if (rec.group) push('group', 'group', `shown: ${rec.groupShown}`, rec.groupTaxon);
+  // identity. Rule 3 starts HERE, not at the group row: a group record's
+  // `scientific` is a family, genus, order or phylum name (Scaridae,
+  // Copepoda, Ctenophora), and printing it under the label "species" — in the
+  // italic binomial styling the UI keys off the row key 'species' — states
+  // something the research never said. Group records get their own row key and
+  // their own label, so a phylum stops reading as a binomial.
+  const idKey = rec.group ? 'taxon' : 'species';
+  push(idKey, idKey, rec.scientific, rec.commonName && !rec.group ? rec.commonName : null);
+  // ...and the group row names the ONE organism the figures describe, when
+  // there is one. When the sources gave figures for the whole group there is
+  // no referent to name, and repeating the taxon back at itself ("taxon
+  // Scaridae / group shown: Scaridae") is a circular row that says nothing.
+  if (rec.group) {
+    // The test is the PRESENCE of a referent, not whether it happens to differ
+    // from `scientific`. On a group record `scientific` is often the referent's
+    // own binomial (scallop -> Placopecten magellanicus), so comparing the two
+    // said "figures are for the group" about figures that are one species' —
+    // the exact opposite of the groupTaxon note printed underneath it.
+    push('group', 'group', rec.groupShown ? `shown: ${rec.groupShown}` : 'figures are for the group', rec.groupTaxon);
+  }
   // rule 4 — non-marine is always stated
   if (o.habitat === 'always' || (o.habitat === 'auto' && !rec.marine)) {
     push('habitat', 'habitat', rec.habitatLabel, null);
   }
   // rule 1 — omitted entirely when either end of the range is null
   push('depth', 'depth', rec.depthLabel, rec.usualNote || null);
+  // v3.7 — WHERE across the shelf, and whether it lives on the bottom. Both
+  // omitted whole for the 84 records the cross-shelf research did not cover.
+  push('shore', 'found', rec.shoreZoneLabel, rec.locationNote);
+  if (rec.benthic === true) push('benthic', 'habit', 'lives on the bottom', null);
+  // a researched day/night split is the honest form of "it migrates"
+  if (rec.dayLabel && rec.nightLabel) {
+    push('diel', 'by day', rec.dayLabel, rec.diel);
+    push('dielNight', 'by night', rec.nightLabel, null);
+  } else if (rec.diel) {
+    push('diel', 'migration', 'rises at night', rec.diel);
+  }
+  if (rec.bioluminescent === true) push('bio', 'light', rec.bioColour || 'bioluminescent', rec.bioNote);
+  else if (rec.bioluminescent === false && rec.bioNote) push('bio', 'light', 'makes none', rec.bioNote);
   // rule 2 — the label IS the measure
   push('size', rec.sizeLabel, rec.sizeValue, rec.measureNote);
   push('iucn', 'red list', rec.iucnLabel, rec.iucn);

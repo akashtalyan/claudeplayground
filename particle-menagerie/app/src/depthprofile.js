@@ -228,7 +228,15 @@ export function transmittanceInto(depthM, out) {
 //   glow      surface glow lobe strength
 //   bio       bioluminescence weight — read through bioGlow() by background.js,
 //             where it is the whole of the midnight zone's light (see above)
-//   floor     how present the seabed haze is
+//   floor     how present the seabed haze is. NOTE (v3.7): this column is the
+//             haze over the ABYSSAL PLAIN specifically — it is keyed to
+//             absolute depth because in v3.4 the only seabed in the world was
+//             the plain at 1200 m, so "deep" and "near the bottom" were the
+//             same fact. They are not the same fact on a cross-shelf transect.
+//             floorHaze() below is the real signal (height above the LOCAL
+//             seabed) and sampleDepth takes the larger of the two, so the
+//             plain is bit-identical and the shelf break and the slope stop
+//             rendering as black.
 //   trails    FADE-RATE multiplier on the preset's trailsK (see composeTrailsK)
 //
 // Why `trails` has to be depth-aware at all (integrator finding, and the most
@@ -287,6 +295,144 @@ function smoothstep01(t) {
   return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
 }
 
+// ---- the seabed haze, keyed to the LOCAL floor (v3.7) ----------------------
+//
+// THE BUG THIS FIXES. The `floor` column above is a function of absolute camera
+// depth, which was correct for exactly as long as the world had one seabed and
+// it sat at 1200 m. The transect gave the world a floor whose depth depends on
+// where you are, and the two mechanisms that paint the seabed both kept keying
+// off depth: crossing the shelf break at 150 m over 200 m of water produced
+// floor = 0 (no haze) while the sun had been gone for 100 m, so the break and
+// the whole continental slope — 13 km of the crossing, the part that is
+// supposed to BE the crossing — rendered as an unbroken black field with no
+// ground edge in it at all.
+//
+// The honest signal is HEIGHT ABOVE THE SEABED UNDER YOU, and the curve below
+// is the old one re-read in those terms: over the 1200 m plain, h = 1200 - m,
+// and this reproduces the KEYS column EXACTLY (0.04 at 400 m up, 0.30 at 200,
+// 0.80 at 80, 1.00 on the bottom — and, because smoothstep(1-t) = 1-smoothstep(t),
+// exactly at every point between them too). Nothing about the abyss moves.
+//
+// Two deliberate limits keep this a fix and not a new look:
+//   * PROX_GAIN < 1 — the nepheloid layer over the flat plain, where the fines
+//     settle, is thicker than the water over a slope they are still falling
+//     down. sampleDepth takes max(depth-keyed, proximity), so the plain keeps
+//     its own (larger) value and only the shelf/slope gain anything.
+//   * the SUN GATE — above ~60 m the seabed is lit by daylight and needs no
+//     haze to be visible (it is the one stretch of the transect that already
+//     read correctly). Gating there means the shore and inner-shelf frames are
+//     untouched, which is also what keeps the harness's brightest frames from
+//     moving.
+const FLOOR_PROX_KEYS = [
+  [0, 1.0], [80, 0.8], [200, 0.3], [400, 0.04], [500, 0],
+];
+const FLOOR_PROX_GAIN = 0.55;
+const FLOOR_SUN_M = 60; // above this the sun lights the ground; no haze term
+const FLOOR_DARK_M = 140; // below this the haze term is at full weight
+// ...and the trails-pass coupling that makes the haze SURVIVE, which is the
+// second half of this fix and the reason the first draft measured almost
+// nothing. The trails pass subtracts 1.5/255 per frame from any channel below
+// 8/255, so a steady field settles at emitted − (1.5/255)/k_effective: the
+// FADE RATE decides how dim a field is allowed to be before it is crushed to
+// black. Over the abyssal plain the KEYS table already pays for this (trails
+// 2.9-3.1 below 800 m, and the note above the table says so in as many words).
+// At the shelf break the table is at ~1.15 — tuned for water whose brightness
+// comes from the sun — so the erosion is (1.5/255)/0.10 ≈ 0.059 linear, which
+// is larger than the entire haze: the term was being computed, written to the
+// uniform, drawn, and then subtracted away frame by frame. Where the seabed
+// haze is the ONLY light in the frame it gets the plain's fade rate and a
+// little more, and only there: on the plain the depth-keyed floor is already
+// the larger term, so `trails` is untouched and the abyss is unchanged.
+const FLOOR_PROX_TRAILS = 4.2;
+// ...and only in the SHALLOW regime. Below ~330 m the KEYS table has already
+// climbed to 1.9-3.1 for exactly this reason and the deep water is calibrated
+// against those numbers, so raising it there would shorten the marine-snow
+// trails the twilight and the plain are tuned around. Above it the table is at
+// its sunlit-water values (1.0-1.9), which is what erases a seabed haze that
+// has no sun in it — the outer shelf and the top of the break.
+const FLOOR_PROX_TRAILS_MAX_M = 330;
+
+/**
+ * How present the seabed haze is from PROXIMITY: 1 sitting on the bottom, 0
+ * with half a kilometre of water under you. Pure, allocation-free.
+ * @param {number} depthM        camera depth, metres below the surface
+ * @param {number} seabedDepthM  depth of the seabed UNDER THE CAMERA, metres
+ */
+export function floorHaze(depthM, seabedDepthM) {
+  const m = clampDepth(depthM);
+  const sun = smoothstep01((m - FLOOR_SUN_M) / (FLOOR_DARK_M - FLOOR_SUN_M));
+  return floorProximity(depthM, seabedDepthM) * sun * FLOOR_PROX_GAIN;
+}
+
+/**
+ * HOW CLOSE the seabed is, 1 sitting on it and 0 with half a kilometre of
+ * water under you — the same curve floorHaze() uses, WITHOUT the sun gate and
+ * WITHOUT PROX_GAIN.
+ *
+ * The two are separate because they answer different questions and v3.7's
+ * first draft asked only one of them. `floorHaze` says how much silt there is
+ * to light up; this says WHERE THE GROUND IS ON SCREEN, which is pure geometry
+ * — a horizontal plane h metres under the camera projects between the near
+ * edge of the frame and the horizon, and how high it climbs depends on h and
+ * on nothing else. Multiplying the height by the strength (which is what
+ * background.js did, because it had only the one number) made the ground at
+ * the shelf break sit at 23% of frame while the identical geometry over the
+ * plain put it at 46% — the break's silt is thinner, not lower.
+ *
+ * @param {number} depthM        camera depth, metres below the surface
+ * @param {number} seabedDepthM  depth of the seabed UNDER THE CAMERA, metres
+ */
+export function floorProximity(depthM, seabedDepthM) {
+  const m = clampDepth(depthM);
+  const bed = Number.isFinite(+seabedDepthM) ? +seabedDepthM : SEABED_DEPTH_M;
+  const h = Math.max(bed - m, 0);
+  const K = FLOOR_PROX_KEYS;
+  if (h >= K[K.length - 1][0]) return 0;
+  let i = 0;
+  while (i < K.length - 2 && K[i + 1][0] < h) i++;
+  const span = K[i + 1][0] - K[i][0];
+  const e = smoothstep01(span > 0 ? (h - K[i][0]) / span : 0);
+  return K[i][1] + (K[i + 1][1] - K[i][1]) * e;
+}
+
+// The seabed depth under the camera. The column module owns the profile; this
+// module deliberately does not import an instance of it, so the source is
+// injected the same way depthbands.js takes its units — setSeabedSource() from
+// the integrator, or the column's own self-registration as a fallback so a
+// browser path that forgets step 1 still works. Node/headless imports fall
+// back to the nominal 1200 m plain, which is what every v3.6 caller assumed.
+const bedSrc = { fn: null };
+
+/**
+ * Point this module at the seabed under the vessel. Optional — the column
+ * registers itself and is auto-adopted below; this is the explicit wiring.
+ * @param {function|object} src  column.floorDepth, or the column api itself
+ */
+export function setSeabedSource(src) {
+  if (typeof src === 'function') bedSrc.fn = src;
+  else if (src && typeof src.floorDepth === 'function') bedSrc.fn = () => src.floorDepth();
+  else bedSrc.fn = null;
+  return bedSrc.fn;
+}
+
+function localSeabedM() {
+  let fn = bedSrc.fn;
+  if (!fn) {
+    // Re-checked (not memoised on a miss) because a background layer can be
+    // built before the column registers itself; two property reads, no
+    // allocation, and it stops the moment the column is there.
+    const g = typeof globalThis !== 'undefined' ? globalThis : null;
+    const col = g && g.__menagerie ? g.__menagerie.column : null;
+    if (col && typeof col.floorDepth === 'function') {
+      fn = () => col.floorDepth();
+      bedSrc.fn = fn;
+    }
+  }
+  if (!fn) return SEABED_DEPTH_M;
+  const v = +fn();
+  return Number.isFinite(v) && v > 0 ? v : SEABED_DEPTH_M;
+}
+
 /** A caller-owned record. Each layer keeps exactly one for its lifetime and
  *  re-fills it; sampleDepth() never allocates. */
 export function createDepthSample() {
@@ -307,11 +453,24 @@ export function createDepthSample() {
     glow: 0,
     bio: 0,
     floor: 0,
+    // ...and how high up the frame that haze reaches, 0..1, which is GEOMETRY
+    // and not strength (see floorProximity). Always >= floor.
+    floorTop: 0,
+    // the seabed the `floor` term was resolved against, metres below the
+    // surface — 1200 on the plain, 200 at the shelf break, 4 at the shore
+    seabedM: SEABED_DEPTH_M,
     trails: 1,
   };
 }
 
-export function sampleDepth(depthM, out) {
+/**
+ * @param {number} depthM        camera depth, metres below the surface
+ * @param {object} out           a createDepthSample() record
+ * @param {number} [seabedDepthM] the seabed under the camera. Omit and the
+ *        injected/auto-adopted column answers; omit both and it is the nominal
+ *        1200 m plain, which is exactly what every v3.6 caller assumed.
+ */
+export function sampleDepth(depthM, out, seabedDepthM) {
   const m = clampDepth(Number.isFinite(+depthM) ? +depthM : DEFAULT_DEPTH_M);
   out.depthM = m;
   out.zone = zoneAt(m);
@@ -335,7 +494,34 @@ export function sampleDepth(depthM, out) {
   out.glow = a.glow + (b.glow - a.glow) * e;
   out.bio = a.bio + (b.bio - a.bio) * e;
   out.trails = a.trails + (b.trails - a.trails) * e;
-  out.floor = a.floor + (b.floor - a.floor) * e;
+  // The seabed haze is the LARGER of the abyssal-plain column (keyed to
+  // absolute depth, and the plain's own value) and the local-floor proximity
+  // term. Over the plain the two are equal by construction and the frame is
+  // unchanged; over the shelf break and the slope only the second one exists,
+  // which is the whole of the v3.7 fix. See floorHaze().
+  const bed = Number.isFinite(+seabedDepthM) ? +seabedDepthM : localSeabedM();
+  out.seabedM = bed;
+  const keyed = a.floor + (b.floor - a.floor) * e;
+  const prox = floorHaze(m, bed);
+  // The haze's HEIGHT on screen: the ungained proximity, floored by the
+  // depth-keyed column so the abyssal plain keeps exactly the height it had.
+  // Over the plain `keyed` (0.93 at 1138 m) wins and nothing moves; over the
+  // break and the slope the proximity term (0.86 hovering 50 m off the bed)
+  // is what puts the ground where the ground actually is.
+  const proxRaw = floorProximity(m, bed);
+  out.floorTop = proxRaw > keyed ? proxRaw : keyed;
+  if (prox > keyed) {
+    out.floor = prox;
+    // see FLOOR_PROX_TRAILS — the haze only survives the trails pass if the
+    // fade is fast enough, and this branch is exactly "the floor is under me
+    // but the depth column does not know about it", i.e. the shelf break and
+    // the slope. On the plain the keyed term wins and nothing here runs.
+    if (m < FLOOR_PROX_TRAILS_MAX_M && out.trails < FLOOR_PROX_TRAILS) {
+      out.trails = FLOOR_PROX_TRAILS;
+    }
+  } else {
+    out.floor = keyed;
+  }
 
   transmittanceInto(m, out.transmit);
   out.water[0] = SURFACE_LIGHT[0] * out.transmit[0];

@@ -618,13 +618,16 @@ export function patternFromWords(text) {
   if (text == null) return null;
   const s = String(text).toLowerCase();
   if (has(PATTERN_WORDS, s.trim())) return PATTERN_WORDS[s.trim()];
-  const hasLure = /\b(lure|esca|illicium|barbel)\b/.test(s);
-  const hasRows = /\b(photophore|counter-?illuminat|ventral row|rows?)\b/.test(s);
+  // Prefix matches, not whole words: a note says "photophores", "flashes",
+  // "glowing" as readily as the bare stem, and a missed match here silently
+  // demotes a researched animal to the curated guess.
+  const hasLure = /\b(lure|esca|illicium|barbel)/.test(s);
+  const hasRows = /\b(photophore|counter-?illuminat|ventral row|rows?\b)/.test(s);
   if (hasLure && hasRows) return BIO.ROWS_LURE;
   if (hasLure) return BIO.LURE;
   if (hasRows) return BIO.ROWS;
-  if (/\b(flash|alarm|pulse|burst)\b/.test(s)) return BIO.PULSE;
-  if (/\b(glow|glows|luminous cloud|diffuse)\b/.test(s)) return BIO.GLOW;
+  if (/\b(flash|alarm|pulse|burst|blink|strobe)/.test(s)) return BIO.PULSE;
+  if (/\b(glow|luminesc|luminous|diffuse|shine|shimmer)/.test(s)) return BIO.GLOW;
   return null;
 }
 
@@ -644,9 +647,13 @@ function dataEntryFor(nameOrWord) {
   return anyBio ? { key, s } : null;
 }
 
+const NOT_LIT = /\b(no light|makes no light|not bioluminescent|non-?luminous|does not (?:luminesc|glow)|no known biolum)/;
+
 function fromData(entry, base) {
   const s = entry.s;
-  if (s.bioluminescent === false) {
+  // A researched note that says the animal is dark is as good as the flag —
+  // and better than defaulting it to a glow because no pattern word matched.
+  if (s.bioluminescent === false || (s.bioluminescent !== true && s.bioNote && NOT_LIT.test(String(s.bioNote).toLowerCase()))) {
     return make(BIO.OFF, {
       lit: false,
       source: 'data',

@@ -1,7 +1,21 @@
-// Species depth bands — v3.4. The world is now a TALL VERTICAL WATER COLUMN
-// (surface at 0 m, abyssal seabed at ~1200 m) and every creature has a natural
-// home in it. This module is the ecology: where a species lives, how tightly it
-// holds that station, and how it drifts and returns when something displaces it.
+// Species depth bands — v3.7. The world is a CROSS-SHELF TRANSECT: 1200 m of
+// water vertically, 36 km of seabed horizontally (shore -> inner shelf ->
+// outer shelf -> shelf break at 200 m -> continental slope -> abyssal plain).
+// Every creature has a natural home in BOTH axes, and this module is the
+// ecology: where a species lives, how tightly it holds that station, and how it
+// drifts and returns when something displaces it.
+//
+// v3.7 — THE SECOND AXIS, in one paragraph. A species' cross-shelf home comes
+// from the researched `shoreZone` list on its band (intertidal / nearshore /
+// shelf / shelfbreak / slope / oceanic / abyssal), mapped onto the transect by
+// SHORE_ZONE_SPANS below. That span is then INTERSECTED with the hard physical
+// constraint that nothing can be where the water is not deep enough for it:
+// a lanternfish at 400 m cannot be over 40 m of shelf, and a barnacle at 1 m
+// cannot be over the abyssal plain. For anything living ON the bottom the two
+// axes are the SAME FACT — a mussel is intertidal because the seabed is 2 m
+// deep there — so the profile's isobath decides its transect and its depth
+// together. Determinism is unchanged: the transect is drawn from the same
+// salted stream as the depth, at an APPENDED round index (geometry-spec 8).
 //
 // THE ONE THING TO UNDERSTAND: everything here is authored in METRES BELOW THE
 // SURFACE, positive down (0 = surface, 1200 = seabed). Metres are the shared
@@ -72,6 +86,45 @@ const FALLBACK_PX_PER_METRE = 5; // provisional only — see above
  *  setDepthUnits adopts the real value so a change there follows through. */
 export const SEABED_DEPTH_M = 1200;
 
+// ---- v3.7: the horizontal mirror of the same fallback ---------------------
+//
+// column.js owns the bathymetric profile; setDepthUnits adopts it. These
+// constants are a COARSE MIRROR of column.js's PROFILE_KEYS, monotone and
+// piecewise-linear rather than PCHIP, and they exist for exactly the reason
+// FALLBACK_PX_PER_METRE does: lexicon.js imports this module and must stay
+// three.js-free and node-importable, so an unwired import has to answer
+// *something* sane instead of throwing. In the app they are never used — the
+// column overwrites all four functions at boot. column.js is the source of
+// truth; if the profile there changes, THIS is stale but harmless.
+const FALLBACK_TRANSECT_M = 36000;
+const FALLBACK_PX_PER_TRANSECT_M = 0.5;
+const FALLBACK_SHORE_X = -FALLBACK_TRANSECT_M * FALLBACK_PX_PER_TRANSECT_M;
+const FALLBACK_PROFILE = [
+  [0, 0], [500, 5], [2500, 18], [7000, 40], [13000, 85], [18000, 200],
+  [20000, 430], [23000, 800], [26000, 1120], [28000, 1200], [36000, 1200],
+];
+
+function fbDepthAt(s) {
+  if (!(s > 0)) return 0;
+  const K = FALLBACK_PROFILE;
+  if (s >= K[K.length - 1][0]) return K[K.length - 1][1];
+  let i = 0;
+  while (i < K.length - 2 && K[i + 1][0] < s) i++;
+  const t = (s - K[i][0]) / (K[i + 1][0] - K[i][0]);
+  return K[i][1] + (K[i + 1][1] - K[i][1]) * t;
+}
+
+function fbTransectAt(m) {
+  const K = FALLBACK_PROFILE;
+  if (!(m > 0)) return 0;
+  if (m >= K[K.length - 1][1]) return 28000;
+  let i = 0;
+  while (i < K.length - 2 && K[i + 1][1] < m) i++;
+  const dd = K[i + 1][1] - K[i][1];
+  const t = dd <= 0 ? 0 : (m - K[i][1]) / dd;
+  return K[i][0] + (K[i + 1][0] - K[i][0]) * t;
+}
+
 const units = {
   configured: false,
   pxPerMetre: FALLBACK_PX_PER_METRE,
@@ -82,6 +135,15 @@ const units = {
   depthOf: (y) => -y / FALLBACK_PX_PER_METRE,
   // local floor Y under a world (x, z) — flat until the column supplies relief
   floorYAt: null,
+  // ---- v3.7, the transect ------------------------------------------------
+  transectM: FALLBACK_TRANSECT_M,
+  // seabed depth (m below the surface) at a transect position (m offshore)
+  profileDepthAt: fbDepthAt,
+  // the isobath: transect position at which the seabed first reaches a depth
+  transectAtDepth: fbTransectAt,
+  // transect metres offshore -> world X, and back
+  xOf: (m) => FALLBACK_SHORE_X + m * FALLBACK_PX_PER_TRANSECT_M,
+  transectOf: (x) => (x - FALLBACK_SHORE_X) / FALLBACK_PX_PER_TRANSECT_M,
 };
 
 /**
@@ -125,6 +187,21 @@ export function setDepthUnits(src) {
     return units;
   }
   if (typeof src.seabedYAt === 'function') units.floorYAt = src.seabedYAt;
+  // v3.7 — the transect. All four are adopted together or not at all: half a
+  // profile (a real depthAt with a fallback inverse, say) would put creatures
+  // at isobaths that do not exist on the curve they are drawn against.
+  if (
+    typeof src.profileDepthAt === 'function' &&
+    typeof src.transectAtDepth === 'function' &&
+    typeof src.transectToWorldX === 'function' &&
+    typeof src.worldXToTransect === 'function'
+  ) {
+    units.profileDepthAt = src.profileDepthAt;
+    units.transectAtDepth = src.transectAtDepth;
+    units.xOf = src.transectToWorldX;
+    units.transectOf = src.worldXToTransect;
+    units.transectM = src.TRANSECT_M ?? src.transectM ?? FALLBACK_TRANSECT_M;
+  }
   units.configured = true;
   return units;
 }
@@ -171,6 +248,41 @@ export function floorYAt(x, z, nearDepthM) {
 /** World px per metre — for anything that needs to size a vertical motion. */
 export function pxPerMetre() {
   return ensureUnits().pxPerMetre;
+}
+
+// ---------------------------------------------------------------------------
+// The transect adapter (v3.7) — the same contract, sideways
+// ---------------------------------------------------------------------------
+
+/** Length of the transect, metres offshore, 0 at the shoreline. */
+export function transectLengthM() {
+  return ensureUnits().transectM;
+}
+
+/** Mean seabed depth (metres below the surface) at a transect position. */
+export function floorDepthAt(transectM) {
+  return ensureUnits().profileDepthAt(transectM);
+}
+
+/** THE ISOBATH: metres offshore at which the seabed first reaches a depth. */
+export function transectAtDepthM(depthM) {
+  return ensureUnits().transectAtDepth(depthM);
+}
+
+/** Transect metres offshore -> world X. */
+export function worldXForTransect(m) {
+  return ensureUnits().xOf(m);
+}
+
+/** World X -> transect metres offshore. */
+export function transectForWorldX(x) {
+  return ensureUnits().transectOf(x);
+}
+
+/** Mean seabed depth under a world X — floorDepthAt(transectForWorldX(x)). */
+export function floorDepthAtX(x) {
+  const u = ensureUnits();
+  return u.profileDepthAt(u.transectOf(x || 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +376,245 @@ function rooted(key, over) {
 }
 
 // ---------------------------------------------------------------------------
+// THE HORIZONTAL BAND (v3.7)
+// ---------------------------------------------------------------------------
+//
+// A researched species carries `shoreZones` on its band: the cross-shelf
+// stretches the sources place it in. These are the transect spans those words
+// mean, in METRES OFFSHORE — unit-free data, exactly like the depth bands, so
+// the draw is pure metre math and needs no world px at all.
+//
+// The boundaries mirror column.js's SHORE_ZONES (0 / 600 / 7500 / 16800 /
+// 19400 / 27500 / 36000) with two deliberate differences, because the research
+// vocabulary is ecological and the column's is topographic:
+//   * `nearshore` and `shelf` OVERLAP. "Nearshore" is a coastal band that runs
+//     out onto the inner shelf; "shelf" as a habitat word starts well inside
+//     the inner shelf. Species carry both when they span the two.
+//   * `oceanic` is not a place on the seabed at all — it means "off the shelf,
+//     in open water", so it starts at the break and runs to the far end.
+// `preferM` is the mode of the draw when this is the species' FIRST-listed
+// zone (the research lists the primary habitat first).
+export const SHORE_ZONE_SPANS = Object.freeze({
+  intertidal: Object.freeze({ fromM: 0, toM: 600, preferM: 200 }),
+  nearshore: Object.freeze({ fromM: 150, toM: 4000, preferM: 1500 }),
+  shelf: Object.freeze({ fromM: 2500, toM: 16800, preferM: 9000 }),
+  shelfbreak: Object.freeze({ fromM: 15500, toM: 20500, preferM: 18000 }),
+  slope: Object.freeze({ fromM: 19400, toM: 27500, preferM: 23000 }),
+  oceanic: Object.freeze({ fromM: 18000, toM: 36000, preferM: 29000 }),
+  abyssal: Object.freeze({ fromM: 27500, toM: 36000, preferM: 32000 }),
+});
+
+// A swimmer needs water UNDER it, not just water at its depth: it is placed no
+// further inshore than the isobath of (its depth x this + this many metres), so
+// nothing is ever drawn scraping the bottom it does not live on.
+const SWIM_CLEARANCE = 1.15;
+const SWIM_CLEARANCE_M = 4;
+
+// The narrowest transect span a band may occupy. Over the abyssal plain the
+// profile is FLAT, so a depth range maps to a single point and a batch of five
+// would stack in one spot; over the intertidal a 4 m range is 400 m of beach.
+// 1500 m of transect is 750 world px — a screen and a half — which is enough
+// spread for a school and small enough that a species still reads as local.
+const MIN_TRANSECT_SPREAD_M = 1500;
+
+// Where a species with NO researched zones is placed. It is a heuristic and it
+// is labelled one: BOTH ends are physical limits derived from the band's own
+// depths, and the mode sits at this fraction of the way between them — biased
+// inshore, because that is where the shelf, the light and the productivity are.
+const NO_ZONE_MODE_FRAC = 0.35;
+
+// ...and the offshore end of that heuristic (v3.7 fix). The inshore end has
+// always been the isobath the individual's own depth needs; the offshore end
+// used to be the far end of the transect, which is not a limit at all — so a
+// clownfish whose whole sourced range is 3-15 m was drawn in open water 27 km
+// out over 1200 m of abyssal plain, and 37-42% of every unzoned reef species
+// sat past the shelf break. The offshore limit is the mirror of the inshore
+// one: an animal is not placed over water more than this many times deeper
+// than the deepest water it is known to use. A band that reaches the seabed
+// has no offshore limit (an anglerfish belongs over the plain) and keeps the
+// whole transect.
+//
+// This is a placement heuristic and stays one — it applies ONLY where the
+// research recorded no shoreZone. A species with a zone list is placed by that
+// list, unchanged, because the sources beat the arithmetic.
+const NO_ZONE_DEEP_WATER_FACTOR = 3.0;
+
+// The floor under that limit. A shallow unzoned species must still be allowed
+// to reach the edge of the shelf — the shelf IS the default habitat and the
+// break is its seaward end — so the offshore limit is never inshore of the
+// break, whatever the band's own depths are. This is also what keeps the two
+// obligate surface floaters (man o' war, sargassum: maxM exactly 0, so their
+// isobath is the shoreline) in open water instead of pinned to the beach.
+const SHELF_BREAK_DEPTH_M = 200;
+
+// How far the members of one batch scatter either side of the batch's own
+// place on the transect: 900 m = 450 world px, half a screen at 960 CSS px.
+// Wide enough that five fish are five fish, tight enough that they are inside
+// each other's schooling radius (560 px) and inside one gather beacon.
+const GROUP_SPREAD_M = 900;
+
+const TRANGE = { inshoreM: 0, offshoreM: 0, preferM: 0, spanM: 0, zoned: false };
+
+/**
+ * The transect span (metres offshore) this band may occupy, written into a
+ * caller-owned record or a shared one.
+ *
+ * @param {object} band     a band record
+ * @param {number} [depthM] the INDIVIDUAL's depth — a pelagic creature's
+ *        inshore limit is its own isobath, not the band's. Defaults to
+ *        band.preferM. Ignored for floor dwellers, whose depth IS their
+ *        transect.
+ * @param {object} [out]    a record to fill (shared one otherwise)
+ * @returns {{inshoreM, offshoreM, preferM, spanM, zoned}} — SHARED unless
+ *        `out` is given: read it, don't retain it.
+ */
+export function transectRangeFor(band, depthM, out) {
+  const rec = out || TRANGE;
+  const b = band || DEFAULT_BAND;
+  const seabed = floorDepthM();
+  const far = transectLengthM();
+
+  // 1. the zone envelope, if the species has one
+  let zLo = 0;
+  let zHi = far;
+  let zPrefer = -1;
+  const zones = b.shoreZones;
+  if (zones && zones.length) {
+    zLo = Infinity;
+    zHi = -Infinity;
+    for (let i = 0; i < zones.length; i++) {
+      const s = SHORE_ZONE_SPANS[zones[i]];
+      if (!s) continue;
+      if (s.fromM < zLo) zLo = s.fromM;
+      if (s.toM > zHi) zHi = s.toM;
+      if (zPrefer < 0) zPrefer = s.preferM; // the first zone listed is the home
+    }
+    if (!Number.isFinite(zLo) || !Number.isFinite(zHi) || zHi <= zLo) {
+      zLo = 0;
+      zHi = far;
+      zPrefer = -1;
+    }
+  }
+  const zoned = zPrefer >= 0;
+
+  let lo;
+  let hi;
+  let prefer;
+  if (b.kind === 'rooted' || b.kind === 'benthic') {
+    // A floor dweller's depth and its transect are the SAME FACT. The band's
+    // depth range is an isobath range; the zone list only narrows it.
+    lo = transectAtDepthM(b.minM);
+    hi = b.maxM >= seabed - 1 ? far : transectAtDepthM(b.maxM);
+    if (zoned) {
+      const iLo = Math.max(lo, zLo);
+      const iHi = Math.min(hi, zHi);
+      if (iHi > iLo) {
+        lo = iLo;
+        hi = iHi;
+      }
+      // an empty intersection means the sources' zone word and the sources'
+      // depth range disagree. The profile is not arguable: depth wins, and
+      // the zone is dropped rather than averaged into a compromise.
+    }
+    prefer = transectAtDepthM(b.preferM);
+  } else {
+    const m = depthM == null ? b.preferM : depthM;
+    const need = m * SWIM_CLEARANCE + SWIM_CLEARANCE_M;
+    const floorLimit = need >= seabed ? transectAtDepthM(seabed) : transectAtDepthM(need);
+    lo = Math.max(zLo, floorLimit);
+    if (zoned) {
+      hi = Math.max(zHi, lo);
+    } else {
+      // the offshore mirror of floorLimit — see NO_ZONE_DEEP_WATER_FACTOR
+      const deepest = Math.max(b.maxM, 0) * NO_ZONE_DEEP_WATER_FACTOR;
+      const cap = deepest >= seabed
+        ? far
+        : Math.max(transectAtDepthM(deepest), transectAtDepthM(SHELF_BREAK_DEPTH_M));
+      hi = Math.max(Math.min(cap, far), lo);
+    }
+    prefer = zoned ? zPrefer : lo + (hi - lo) * NO_ZONE_MODE_FRAC;
+  }
+
+  // 2. a minimum spread, so a batch never stacks on a flat floor
+  if (hi - lo < MIN_TRANSECT_SPREAD_M) {
+    const mid = (lo + hi) * 0.5;
+    lo = mid - MIN_TRANSECT_SPREAD_M * 0.5;
+    hi = mid + MIN_TRANSECT_SPREAD_M * 0.5;
+    if (zoned) {
+      // the widening may leave the zone; slide it back rather than clip it to
+      // nothing, so the span keeps its width and its zone at the same time
+      if (lo < zLo && zHi - zLo >= MIN_TRANSECT_SPREAD_M) {
+        hi += zLo - lo;
+        lo = zLo;
+      }
+      if (hi > zHi && zHi - zLo >= MIN_TRANSECT_SPREAD_M) {
+        lo -= hi - zHi;
+        hi = zHi;
+      }
+    }
+  }
+  if (lo < 0) {
+    hi -= lo;
+    lo = 0;
+  }
+  if (hi > far) {
+    lo -= hi - far;
+    hi = far;
+  }
+  if (lo < 0) lo = 0;
+  if (hi < lo) hi = lo;
+
+  rec.inshoreM = lo;
+  rec.offshoreM = hi;
+  rec.spanM = hi - lo;
+  rec.preferM = Math.min(Math.max(prefer, lo), hi);
+  rec.zoned = zoned;
+  return rec;
+}
+
+/**
+ * Where along the transect this individual lives, in metres offshore.
+ * Deterministic in (band, seed, instance) from the SAME salted stream as the
+ * depth, at round 3 — appended after depth (0) and the two wander phases
+ * (1, 2), so geometry-spec 8's frozen draw order is untouched and a v3.6 URL
+ * still reproduces every v3.6 depth exactly.
+ */
+export function pickTransect(band, seed, instance, depthM) {
+  const b = typeof band === 'string' ? bandFor(band) : band || DEFAULT_BAND;
+  // 1. THE SPECIES' PLACE. Drawn against the band's own range — the one at its
+  //    preferred depth — so every member of a batch resolves the same stretch
+  //    of ocean and the draw is batch-invariant.
+  transectRangeFor(b, null, TRANGE);
+  if (TRANGE.spanM <= 0) return TRANGE.inshoreM;
+  const p = (TRANGE.preferM - TRANGE.inshoreM) / TRANGE.spanM;
+  let m = TRANGE.inshoreM + TRANGE.spanM * triangular(depthRandom(seed, 0, 3), p);
+  // 2. THE INDIVIDUAL'S PLACE IN THE GROUP. A batch is ONE group: siblings
+  //    scatter within half a screen of it. Drawing each member independently —
+  //    which is what the DEPTH axis does, and rightly, since a school is a
+  //    vertical column of fish in one patch of ocean — would spread "a school
+  //    of fish" over twenty kilometres of shelf, where they could neither
+  //    school, hear one summons, nor be seen together.
+  const i = instance | 0;
+  if (i > 0) m += (depthRandom(seed, i, 4) * 2 - 1) * GROUP_SPREAD_M;
+  // 3. ...and then the individual's own physical limit. A member that drew a
+  //    deeper station than the species' mode cannot stand as far inshore: the
+  //    water there is not deep enough for it. Depth narrows the range; it never
+  //    relocates the group.
+  if (depthM != null) transectRangeFor(b, depthM, TRANGE);
+  if (m < TRANGE.inshoreM) m = TRANGE.inshoreM;
+  else if (m > TRANGE.offshoreM) m = TRANGE.offshoreM;
+  return m;
+}
+
+/** "12.4 km offshore · continental slope" for an instrument, or null when the
+ *  band has no researched cross-shelf home. */
+export function describeTransect(band) {
+  const b = band || DEFAULT_BAND;
+  if (!b.shoreZones || !b.shoreZones.length) return null;
+  return b.shoreZones.join(' / ');
+}
+
+// ---------------------------------------------------------------------------
 // Archetype bands — the default home for anything the species table misses
 // ---------------------------------------------------------------------------
 
@@ -280,6 +631,14 @@ export const ARCH_BANDS = Object.freeze({
   }),
   // cephalopods hold the deep twilight, hunting up and down at dusk
   octo: pelagic('octo', 180, 820, 430, { hold: 0.25, wanderM: 30, wanderHz: 0.022, note: 'hunts the deep twilight' }),
+  // v3.7 — marine tetrapods: air-breathers, so the band is pinned at the
+  // ceiling and the hold is hard, exactly like the cetaceans. This is only the
+  // FALLBACK: every word in LEX.tetrapod has a researched species band, and
+  // those carry the cross-shelf zones this one deliberately does not (an
+  // authored band may not invent a habitat statement — it is not a citation).
+  tetrapod: pelagic('tetrapod', 0, 130, 22, {
+    tight: 0.6, hold: 0.85, wanderM: 14, wanderHz: 0.045, note: 'must reach air',
+  }),
   // echinoderms are floor animals, full stop
   star: benthic('star'),
   // formless things hang in the mid-water like smoke
@@ -474,11 +833,17 @@ export const SPECIES_BANDS = Object.freeze({
 // Lookup
 // ---------------------------------------------------------------------------
 
+// v3.7 re-routings ride in from the data file (OCEAN.aliasesV37): they are the
+// words the new research RE-HOMES, so they are applied before anything else.
+// 'turtle' is the one to look at — v3.6 answered it from the ray archetype
+// because the lexicon filed turtles with the flatfish; it is a marine tetrapod
+// on the inner shelf now, and this is the line that makes that true everywhere.
 const ALIASES = Object.freeze({
   jellies: 'jellyfish',
   medusae: 'medusa',
   octopus: 'octopus',
   seastars: 'seastar',
+  ...((OCEAN && OCEAN.aliasesV37) || {}),
 });
 
 /** The band key a name resolves to, or null. Tries: exact, alias, singular,
@@ -506,11 +871,17 @@ const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 function lookupWord(w) {
   if (has(ALIASES, w)) w = ALIASES[w];
+  // v3.7: the researched band table is consulted FIRST. Every v3.5 word is in
+  // it already (bandFor preferred it over the authored table from the start),
+  // and the 69 species v3.7 adds exist ONLY there — without this line a
+  // barnacle would resolve to nothing and drift the mid-water as 'default'.
+  if (has(DATA_BANDS, w)) return w;
   if (has(SPECIES_BANDS, w)) return w;
   if (has(ARCH_BANDS, w)) return w;
   const s = w.replace(/s$/, '');
   if (s !== w) {
     if (has(ALIASES, s)) return ALIASES[s];
+    if (has(DATA_BANDS, s)) return s;
     if (has(SPECIES_BANDS, s)) return s;
     if (has(ARCH_BANDS, s)) return s;
   }
@@ -658,14 +1029,19 @@ function depthRandom(seed, instance, round) {
  * @param {number} [instance]      index within a school/batch (default 0)
  * @returns {number} metres below the surface, positive down
  */
-export function pickDepth(band, seed, instance) {
+export function pickDepth(band, seed, instance, transectM) {
   const b = typeof band === 'string' ? bandFor(band) : band || DEFAULT_BAND;
   const i = instance || 0;
-  if (b.kind === 'rooted') return floorDepthM();
+  // v3.7 — a floor dweller's depth is the depth of the floor it is standing on.
+  // With a transect position it is a fact about the profile; without one the
+  // v3.6 answer (the column's single deepest floor) is kept, so an unwired
+  // caller still gets something on the seabed rather than a NaN.
+  const floor = transectM == null ? floorDepthM() : floorDepthAt(transectM);
+  if (b.kind === 'rooted') return floor;
   if (b.kind === 'benthic') {
     const u = depthRandom(seed, i, 0);
     const hover = Math.max(b.hoverM + (u * 2 - 1) * b.hoverVarM, 0.2);
-    return floorDepthM() - hover;
+    return Math.max(floor - hover, 0);
   }
   effRange(b, RANGE);
   const u = depthRandom(seed, i, 0);
@@ -748,6 +1124,70 @@ export function placeDepth(o) {
   };
 }
 
+/**
+ * THE v3.7 PLACEMENT CALL — both axes at once, which is the only way they can
+ * be made to agree. This is what boardSpec() should use; placeDepth() above is
+ * kept for callers that already own an x.
+ *
+ * The two branches differ in WHICH axis is drawn first, and that asymmetry is
+ * the ecology:
+ *   * a floor dweller's transect is drawn first and its depth FOLLOWS from the
+ *     seabed there. A mussel is at 2 m because it is 300 m offshore — those are
+ *     one fact, and drawing them separately is how you get a mussel hanging in
+ *     open water over the slope.
+ *   * a swimmer's depth is drawn first (from its band, exactly as in v3.6, from
+ *     the same RNG round — a v3.6 URL still reproduces every v3.6 depth) and
+ *     its transect is then drawn from its shore zones, clipped so there is
+ *     always water under it.
+ *
+ * @param {object} o { band?, name?, arch?, seed, instance?, z?, jitterPx?,
+ *                     liftPx? }
+ * @returns {{band, kind, transectM, worldX, depthM, worldY, hoverM, rooted,
+ *            floorDepthM}} — a fresh record, spawn path only.
+ */
+export function placeSpot(o) {
+  const band = o.band || (o.name ? bandFor(o.name) : bandFor(o.arch));
+  const seed = o.seed >>> 0;
+  const instance = o.instance || 0;
+  const z = o.z || 0;
+  const jitter = o.jitterPx || 0;
+  const lift = o.liftPx || 0;
+  if (band.kind === 'rooted' || band.kind === 'benthic') {
+    const transectM = pickTransect(band, seed, instance, null);
+    const meanM = floorDepthAt(transectM);
+    const worldX = worldXForTransect(transectM) + jitter;
+    const hoverM = band.kind === 'benthic' ? pickHover(band, seed, instance) : 0;
+    // the hint AGREES with the local floor by construction, so the substrate
+    // bridge in column.js never fires here — the ground answered is the real
+    // ground under this x, relief and all
+    const y = floorYAt(worldX, z, meanM) + hoverM * pxPerMetre() + lift;
+    return {
+      band,
+      kind: band.kind,
+      transectM,
+      worldX,
+      depthM: depthForWorldY(y),
+      worldY: y,
+      hoverM,
+      rooted: band.kind === 'rooted',
+      floorDepthM: meanM,
+    };
+  }
+  const depthM = pickDepth(band, seed, instance);
+  const transectM = pickTransect(band, seed, instance, depthM);
+  return {
+    band,
+    kind: 'pelagic',
+    transectM,
+    worldX: worldXForTransect(transectM) + jitter,
+    depthM,
+    worldY: worldYForDepth(depthM),
+    hoverM: 0,
+    rooted: false,
+    floorDepthM: floorDepthAt(transectM),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Vertical behaviour — wander inside the band, ease back when displaced
 // ---------------------------------------------------------------------------
@@ -781,6 +1221,19 @@ export function attachDepth(creature, o) {
   creature.homeM = opts.homeM != null ? opts.homeM : pickDepth(band, seed, instance);
   creature.hoverM = pickHover(band, seed, instance);
   creature.liftPx = opts.liftPx || 0;
+  // v3.7 — the horizontal home. `homeX` is world px (what the roam bounds and
+  // the culling read); `homeS` is the same place in transect metres (what an
+  // instrument would print). Both come from placement so steering and spawn
+  // agree to the last decimal, exactly as homeM does.
+  creature.homeS = opts.homeS != null ? opts.homeS : pickTransect(band, seed, instance, creature.homeM);
+  creature.homeX = opts.homeX != null ? opts.homeX : worldXForTransect(creature.homeS);
+  // The species' stretch of transect, resolved ONCE and cached in world px.
+  // transectRangeFor inverts the profile by bisection, which is 24 profile
+  // evaluations — cheap, but not something a per-creature per-frame backstop
+  // should pay for, and the range does not change while the creature lives.
+  transectRangeFor(band, creature.homeM, TRANGE);
+  creature.rangeXLo = worldXForTransect(TRANGE.inshoreM);
+  creature.rangeXHi = worldXForTransect(TRANGE.offshoreM);
   // phases come from the same salted stream, appended after the depth draw
   creature.dPh1 = depthRandom(seed, instance, 1) * Math.PI * 2;
   creature.dPh2 = depthRandom(seed, instance, 2) * Math.PI * 2;
@@ -808,9 +1261,14 @@ function bandOf(c) {
  */
 export function targetDepthFor(creature, t) {
   const b = bandOf(creature);
-  if (b.kind === 'rooted') return floorDepthM();
+  // v3.7: the floor a creature stands on is the floor under ITS OWN x, not the
+  // column's deepest one. Without this every benthic animal on the shelf would
+  // be steered down to 1200 m every frame while its body stayed on the rock.
+  if (b.kind === 'rooted') return floorDepthAtX(creature.px || 0);
   const home = creature.homeM != null ? creature.homeM : b.preferM;
-  if (b.kind === 'benthic') return floorDepthM() - (creature.hoverM != null ? creature.hoverM : b.hoverM);
+  if (b.kind === 'benthic') {
+    return Math.max(floorDepthAtX(creature.px || 0) - (creature.hoverM != null ? creature.hoverM : b.hoverM), 0);
+  }
   const w = b.wanderM;
   if (w <= 0) return home;
   const p1 = creature.dPh1 || 0;
@@ -894,10 +1352,19 @@ export function clampToBand(creature, slackM) {
     return true;
   }
   const m = depthForWorldY(creature.py);
-  // floor bands are expressed relative to the LIVE seabed depth, so a change
-  // to the column's height carries them with it instead of stranding them
-  const lo = b.kind === 'benthic' ? floorDepthM() - 40 : b.minM - s;
-  const hi = b.kind === 'benthic' ? floorDepthM() : b.maxM + s;
+  // floor bands are expressed relative to the LIVE seabed depth under the
+  // creature's own x (v3.7), so a change to the column's height — or a walk
+  // along the transect — carries them with it instead of stranding them
+  // ...and against the ACTUAL ground under it, relief included — not the
+  // profile's mean. v3.6 clamped benthos to the nominal seabed depth, so an
+  // animal standing in a dune trough was held up to 15 m above the sand it was
+  // supposed to be sitting on. Same call the placement made, so the clamp and
+  // the spawn cannot disagree.
+  const localFloor = b.kind === 'benthic'
+    ? depthForWorldY(floorYAt(creature.px || 0, creature.pz || 0))
+    : 0;
+  const lo = b.kind === 'benthic' ? Math.max(localFloor - 40, 0) : b.minM - s;
+  const hi = b.kind === 'benthic' ? localFloor : b.maxM + s;
   if (m < lo) {
     creature.py = worldYForDepth(lo);
     return true;
@@ -909,13 +1376,59 @@ export function clampToBand(creature, slackM) {
   return false;
 }
 
+/**
+ * The horizontal backstop, and the exact mirror of clampToBand: keep a creature
+ * inside the stretch of transect its species occupies, no matter what moved it.
+ * Roaming, schooling and the gather beacon all write c.px directly.
+ *
+ * The band's own span is used, widened by `slackPx` world px, so a creature can
+ * wander out of frame but never off its shore zone — a reef fish cannot swim
+ * out over the abyssal plain because nothing was watching.
+ * Allocation-free; mutates c.px only.
+ */
+export function clampToTransect(creature, slackPx) {
+  let xLo = creature.rangeXLo;
+  let xHi = creature.rangeXHi;
+  if (xLo == null || xHi == null) {
+    // not stamped by attachDepth (a legacy creature, or a caller that built its
+    // own): resolve once and cache, so this stays O(1) from the second frame
+    transectRangeFor(bandOf(creature), creature.homeM, TRANGE);
+    xLo = creature.rangeXLo = worldXForTransect(TRANGE.inshoreM);
+    xHi = creature.rangeXHi = worldXForTransect(TRANGE.offshoreM);
+  }
+  const s = slackPx || 0;
+  const lo = xLo - s;
+  const hi = xHi + s;
+  if (creature.px < lo) {
+    creature.px = lo;
+    return true;
+  }
+  if (creature.px > hi) {
+    creature.px = hi;
+    return true;
+  }
+  return false;
+}
+
 export default {
   bandFor,
   bandForSpec,
   bandKeyFor,
   pickDepth,
   pickHover,
+  pickTransect,
   placeDepth,
+  placeSpot,
+  transectRangeFor,
+  describeTransect,
+  clampToTransect,
+  floorDepthAt,
+  floorDepthAtX,
+  transectAtDepthM,
+  worldXForTransect,
+  transectForWorldX,
+  transectLengthM,
+  SHORE_ZONE_SPANS,
   attachDepth,
   targetDepthFor,
   targetWorldY,

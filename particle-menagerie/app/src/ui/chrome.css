@@ -1261,3 +1261,310 @@ body.inspecting #labels,
 body.inspecting #depthgauge {
   pointer-events: none;
 }
+
+/* ==========================================================================
+   v3.7 — SHORE GAUGE (markup built by src/ui/shoregauge.js; this section owns
+   every shore-gauge rule, including its own boot gate, its State C ambient
+   rule and its body.inspecting rule, so nothing above needed editing).
+
+   The world gained a second navigation axis — a cross-shelf transect from the
+   shoreline out to the abyssal plain — so it gets the depth gauge's instrument
+   laid on its side along the BOTTOM edge: brass hairline scale, 1px
+   graduations, 8px numerals, ONE amber needle, a mono distance readout and the
+   zone name in Spectral small-caps. Same restraint, same casing-not-a-panel
+   legibility trick (--sg-casing / --sg-halo), same awake / ambient / boot
+   behaviour.
+
+   THE FOUR-INSTRUMENT GEOMETRY (why these exact insets — see the header of
+   shoregauge.js for the full argument, and note that all three were MEASURED
+   in the running app, not estimated):
+     left: 268px   clears the depth gauge's whole footprint. Not its 148px box
+                   (which ends at 170) but its READOUT STACK: .dg-read starts at
+                   x = 88 and .dg-note is 172px wide, so the instrument's ink
+                   reaches x = 260 — and at abyssal depths that stack hangs down
+                   to y = 553, i.e. THROUGH this strip. It is not transient:
+                   below 1000 m the sourced light line reads "no sunlight below
+                   1000 m" with no hover gate, so it is on screen for as long as
+                   the vessel is deep. 268 clears it by 8px.
+     right: 168px  clears the weather rotary's hovered dial AND its ‹ ›
+                   affordances (ink reaches 130px in) by 38px
+     bottom: 10px + 44px tall  puts the top edge at y = 54px, two pixels under
+                   the summon row's underline at 56px
+   Everything the instrument draws lives inside that 44px strip. The rows, from
+   the water down to the screen edge:
+     0..15  the seabed SECTION (0 m at the top edge, 1200 m at the bottom)
+     12..34 the RULE — also the 22px hit strip: hairline at 18, ticks 19..24
+     25..34 the NUMERALS (km offshore)
+     34..44 the READOUT, riding the needle in the one row nothing else uses
+
+   HIT AREA: #shoregauge is pointer-events:none — only the 22px .sg-rule strip
+   takes the pointer, so the water stays clickable everywhere else, including
+   through the section drawn above it.
+   ========================================================================== */
+#shoregauge {
+  /* the same two tokens the depth gauge scopes to itself: every mark carries a
+     soft dark casing, so the instrument reads over the bright surface glitter
+     AND over the black abyss without a panel behind it */
+  --sg-halo: 0 0 2px rgba(2, 4, 7, 0.95), 0 0 6px rgba(2, 4, 7, 0.9),
+    0 1px 1px rgba(2, 4, 7, 0.9);
+  --sg-casing: 0 0 3px 1px rgba(2, 4, 7, 0.6);
+
+  position: fixed;
+  left: 268px;
+  right: 168px;
+  bottom: 10px;
+  height: 44px;
+  /* Past this the rule stops growing (left wins when left/right/width are all
+     specified), because a 3000px scale flattens the section into a straight
+     line and the numerals drift apart into decoration. */
+  max-width: 1180px;
+  z-index: 5;
+  pointer-events: none;
+  /* State C return: rises with the depth gauge, after the summon row and the
+     rotary — the vessel's instruments come back once the water is lit again */
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 200ms,
+    opacity 420ms ease 200ms;
+}
+
+/* ---- the section: a dotted seabed contour, drawn at or below true scale ---
+   Top edge = the sea surface, bottom edge = 1200 m, both linear. Dots, not a
+   stroke: the seabed in the world is made of dots, and a dot placed in percent
+   on both axes needs no SVG, no canvas and no JS on resize. Brightness lives on
+   the CONTAINER so hover animates one opacity instead of 145 backgrounds. */
+.sg-section {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  /* the band's bottom edge (1200 m) is the rule's own hairline, 18px down: the
+     profile lands ON the baseline where the slope bottoms out, which is both
+     the truth about an abyssal plain and three more pixels of section than a
+     band floating above the rule could have had */
+  height: 18px;
+  opacity: 0.55;
+  transition: opacity var(--hover-ms) ease;
+}
+.sg-bed {
+  position: absolute;
+  width: 2px;
+  height: 1px;
+  margin-left: -1px;
+  background: var(--brass-28);
+  box-shadow: var(--sg-casing);
+}
+/* the plumb from the vessel down to the rule — the depth of water under it */
+.sg-drop {
+  position: absolute;
+  width: 1px;
+  background: var(--brass-20);
+  opacity: 0.9;
+}
+/* the vessel itself, riding the contour */
+.sg-mark {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  margin: -1px 0 0 -1px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow:
+    0 0 6px rgba(255, 195, 122, 0.8),
+    0 0 3px 1px rgba(2, 4, 7, 0.62);
+}
+
+/* ---- the rule: 22px hit strip, 1px brass hairline across its middle ------ */
+.sg-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 12px;
+  height: 22px;
+  pointer-events: auto;
+  cursor: ew-resize;
+  outline: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* full span of the transect (0 -> 36 km), the dimmest hairline in the app */
+.sg-rule::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 1px;
+  background: var(--brass-14);
+  box-shadow: var(--sg-casing);
+  transition: background var(--hover-ms) ease;
+}
+/* the stretch the vessel can actually reach (shoreRange() min..max): it stops
+   inshore in 4 m of water rather than beaching itself */
+.sg-reach {
+  position: absolute;
+  top: 6px;
+  height: 1px;
+  background: var(--brass-28);
+  box-shadow: var(--sg-casing);
+  transition: background var(--hover-ms) ease;
+}
+
+/* ---- graduations: minor every 2 km, major (numbered) every 6 km ---------- */
+.sg-tick {
+  position: absolute;
+  top: 7px;
+  width: 1px;
+  height: 4px; /* flush under the hairline, growing toward the numerals */
+  background: var(--brass-20);
+  box-shadow: var(--sg-casing);
+  transition: background var(--hover-ms) ease;
+}
+.sg-tick.major {
+  height: 5px;
+  background: var(--brass-28);
+}
+/* the shelf break — the profile's one landmark, and the only place on this
+   axis where the seabed does anything sudden. Brighter, not longer: it shares
+   its position with the "18" numeral. */
+.sg-tick.landmark {
+  height: 5px;
+  background: var(--brass-50);
+}
+
+/* ---- the set-point bug: where the vessel is HEADED ----------------------- */
+.sg-bug {
+  position: absolute;
+  top: 7px;
+  width: 1px;
+  height: 6px;
+  background: var(--brass-50);
+  opacity: 0;
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- the needle: the plate's 2x10px amber gauge needle, stood upright ---- */
+.sg-needle {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 12px;
+  margin-left: -1px;
+  background: var(--amber);
+  box-shadow:
+    0 0 7px rgba(255, 195, 122, 0.8),
+    0 0 3px 1px rgba(2, 4, 7, 0.62);
+  pointer-events: none;
+}
+
+/* ---- numerals: tiny, centred on the major ticks, km offshore ------------- */
+.sg-scale {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 25px;
+  height: 9px;
+  pointer-events: none;
+}
+.sg-num {
+  position: absolute;
+  transform: translateX(-50%);
+  font: 400 8px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  line-height: 9px;
+  color: var(--warm-30);
+  text-shadow: var(--sg-halo);
+  white-space: nowrap;
+  transition: color var(--hover-ms) ease;
+}
+
+/* ---- the readout rides the needle ---------------------------------------
+   Clamped in CSS rather than JS: it can ride to either end of the transect
+   without walking off the instrument, and clamping in the stylesheet costs no
+   layout read on the frame path. */
+.sg-read {
+  position: absolute;
+  top: 34px;
+  left: clamp(78px, var(--sg-x, 50%), calc(100% - 78px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.sg-value {
+  /* line-height pinned so the row is exactly the 10px the strip budgets for it
+     — the shorthand's `normal` would make the flex row 16px tall and hang the
+     readout off the bottom of the instrument */
+  font: 400 10px/10px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  text-shadow: var(--sg-halo);
+}
+/* the zone name is what makes this a PLACE and not a slider */
+.sg-zone {
+  font: 500 10px/10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--amber-bright);
+  opacity: 0.7;
+  text-shadow: var(--sg-halo);
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- awake (hover / focus / drag): one step up, 180ms ------------------- */
+#shoregauge.awake .sg-section {
+  opacity: 0.9;
+}
+#shoregauge.awake .sg-num {
+  color: var(--warm-50);
+}
+#shoregauge.awake .sg-tick {
+  background: var(--brass-28);
+}
+#shoregauge.awake .sg-tick.major,
+#shoregauge.awake .sg-tick.landmark {
+  background: var(--brass-50);
+}
+#shoregauge.awake .sg-rule::before {
+  background: var(--brass-20);
+}
+#shoregauge.awake .sg-reach {
+  background: var(--brass-50);
+}
+#shoregauge.awake .sg-zone {
+  opacity: 0.85;
+}
+
+/* ---- narrow viewports ---------------------------------------------------
+   Only the OFFSHORE end may tuck in: the weather rotary's reach is a hover
+   state, so 140px still clears its resting dial by 80px and its grown one by
+   10px. The inshore end cannot move — the depth gauge's readout is a fixed
+   pixel footprint that does not shrink with the viewport. */
+@media (max-width: 900px) {
+  #shoregauge {
+    right: 140px;
+  }
+}
+
+/* ---- State C ambient: sinks with the rest of the chrome ----------------- */
+body.ambient #shoregauge {
+  transform: translateY(130px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 1200ms cubic-bezier(0.55, 0, 0.85, 0.45) 80ms,
+    opacity 1000ms ease 220ms;
+}
+/* the strip sets pointer-events:auto, so it must be switched off explicitly */
+body.ambient #shoregauge .sg-rule,
+body.inspecting #shoregauge .sg-rule {
+  pointer-events: none;
+}
+
+/* ---- boot gate (same rule as the rest of the chrome) -------------------- */
+body:not(.booted) #shoregauge {
+  visibility: hidden;
+}

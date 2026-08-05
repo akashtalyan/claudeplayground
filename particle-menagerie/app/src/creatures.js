@@ -32,6 +32,7 @@ import { makeStar } from './geometry/star.js';
 import { makeAmorph } from './geometry/amorph.js';
 import { makeBloom } from './geometry/bloom.js';
 import { makeKelp } from './geometry/kelp.js';
+import { makeTetrapod } from './geometry/tetrapod.js';
 import { ARCH_BANDS, bandFor, isRootedBand, isFloorBand } from './depthbands.js';
 
 const HPI = Math.PI / 2;
@@ -92,6 +93,28 @@ export const REGISTRY = {
     scale: 42, dotPx: 2.6, alpha: 0.95, speed: 0,
     yawOffset: 0, pitch: 0, spin: 0,
     band: ARCH_BANDS.kelp, // rooted — planted on the seabed, never floating
+  },
+  // v3.7 — the marine tetrapods: a rounded trunk plus PADDLING limbs, the one
+  // body plan the undulating-spine archetypes could not express. Before this,
+  // "turtle" resolved to `ray` (a flat sheet). Local forward is head at −x,
+  // the same convention as eel/fish, so yawOffset is π.
+  //
+  // APPENDED DELIBERATELY: ARCHETYPES is Object.keys(REGISTRY), so a new key
+  // goes at the END — inserting one mid-object would renumber every existing
+  // archetype for any index-based consumer.
+  tetrapod: {
+    maker: makeTetrapod, class: 'swimmer', boundR: 2.6,
+    scale: 56, dotPx: 2.95, alpha: 1.05, speed: 28,
+    yawOffset: Math.PI, pitch: 0, spin: 0,
+    // boundR 2.6 is measured, not guessed: max |P| = 2.02 over all 9 presets
+    // plus 60 seed-only builds × sway {0, 1, 2.4} × 240 frames — 1.28× margin
+    // (geometry-spec §10, fixed local bounding sphere).
+    //
+    // Air-breathers live at the ceiling of the column and must surface.
+    // depthbands.js has no `tetrapod` ARCH_BAND yet, so the turtle species
+    // band (1–130 m, "must reach air") is the archetype default — see the
+    // handoff note about adding seal / penguin / otter / walrus bands.
+    band: bandFor('turtle'),
   },
 };
 

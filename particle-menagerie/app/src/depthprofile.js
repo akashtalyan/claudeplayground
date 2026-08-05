@@ -172,6 +172,19 @@ export const FLOOR_COLOUR = Object.freeze([0.042, 0.04, 0.036]);
 // twilight layer; the alternative (gating per screen ROW) makes the water
 // brighter BELOW you in that band, which reads as light from the wrong
 // direction and is far worse.
+// In-scattered light (airlight). Absorption alone drives the red channel to
+// exactly zero within tens of metres, which is what made the sunlit water read
+// as saturated poster-cyan rather than as ocean. Light scattered back INTO the
+// view path saturates with distance instead of decaying, so it refills the
+// emptied channels and desaturates the result — the same term that makes
+// distant hills pale rather than merely dark. Slightly blue-weighted because
+// that is what water scatters, but with real red and green in it, which is the
+// entire point.
+export const AIRLIGHT = Object.freeze([0.0125, 0.0165, 0.0205]);
+// Rate per metre: reaches ~63% of full at 60 m, so the shallow zone gets most
+// of the desaturation and the abyss is untouched (it has no light to scatter).
+export const AIRLIGHT_K = 0.0165;
+
 export const SCATTER_COLOUR = Object.freeze([0.0027, 0.0105, 0.0176]);
 export const SCATTER_K = 0.0028; // 1/m — the scattered component's own falloff
 const SCATTER_IN_M = 180; // fades in from here...

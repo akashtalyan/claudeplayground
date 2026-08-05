@@ -31,6 +31,8 @@ import {
   FLOOR_COLOUR,
   SCATTER_COLOUR,
   SCATTER_K,
+  AIRLIGHT,
+  AIRLIGHT_K,
   BIO_COLOUR,
   scatterGlow,
   bioGlow,
@@ -59,6 +61,8 @@ uniform float uFloorTop;  // uv.y the seabed haze reaches up to (<0 = not yet)
 uniform vec3 uGlow;       // surface lobe colour x depth-faded strength
 uniform float uShimmer;   // surface wave shimmer, 0..1
 uniform vec3 uFloor;      // abyssal sediment colour x presence
+uniform vec3 uAir;        // in-scattered (airlight) radiance, saturates with path
+uniform float uAirK;      // its rate per metre
 uniform vec3 uScatter;    // scattered-daylight colour x weight, AT uDepthPos
 uniform float uScatterK;  // its falloff per metre (the within-frame gradient)
 uniform vec3 uBio;        // bioluminescent field colour x weight
@@ -85,6 +89,20 @@ void main() {
 	// glow lobe and its shimmer are left up there. Below the plane am is 0 and
 	// this is exactly exp(0) = 1, so nothing else in the column is touched.
 	vec3 col = uAmbient * exp( -uK * dm ) * exp( -am * 0.12 );
+
+	// --- in-scattered light (airlight) --------------------------------------
+	// Beer-Lambert alone is ABSORPTION only, and absorption alone is why the
+	// sunlit water came out looking like a printed poster: red is extinguished
+	// ~3.5x faster than blue, so within tens of metres the red channel reaches
+	// EXACTLY zero and the colour is fully saturated by construction. Real
+	// water does not do that, because as light is absorbed out of the beam it
+	// is also SCATTERED back into the view path — the classic airlight term.
+	// It saturates with path length rather than decaying with it, so it
+	// dominates exactly where absorption has emptied a channel, and it is what
+	// makes real ocean read as a deep desaturated blue instead of cyan.
+	// The existing uScatter term is a different thing (the last of the
+	// DIRECT beam, gated to below 180 m); this one applies at every depth.
+	col += uAir * ( 1.0 - exp( -uAirK * dm ) ) * exp( -am * 0.12 );
 
 	// --- the surface, above you ------------------------------------------
 	// A broad soft lobe centred ON the surface plane, not on the frame top:
@@ -200,6 +218,8 @@ export function createBackground(scene, opts = {}) {
       uGlow: { value: new THREE.Vector3() },
       uShimmer: { value: 0 },
       uFloor: { value: new THREE.Vector3() },
+      uAir: { value: new THREE.Vector3(AIRLIGHT[0], AIRLIGHT[1], AIRLIGHT[2]) },
+      uAirK: { value: AIRLIGHT_K },
       uScatter: { value: new THREE.Vector3() },
       uScatterK: { value: SCATTER_K },
       uBio: { value: new THREE.Vector3() },

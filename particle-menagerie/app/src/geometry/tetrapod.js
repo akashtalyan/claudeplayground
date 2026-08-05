@@ -214,18 +214,23 @@ export const TETRAPOD_MORPHS = {
   // A sea otter rests at the surface, belly up, near-horizontal: bank 2.85 rad
   // rolls the whole animal (frames, limbs and all) onto its back. Small
   // rowing paws, webbed hind feet, and a thick sculling tail (tailFat 0.82).
+  // An otter is not a small seal. It is COMPACT and barrel-chested, with a
+  // blunt round head on a real neck, SMALL forepaws it holds at its chest, and
+  // outsized webbed HIND feet that do all the swimming — that asymmetry is the
+  // whole silhouette. It also had a walrus's TUSKS (tusk: 0.28), which is why
+  // it grew a spike by its face; sea otters have none.
   otter: {
-    elong: 1.05, girth: 1.0, flat: 0.95, tailFat: 0.82, neck: 0.5,
-    snout: 0.75, snoutPow: 0.7,
-    head: 0.7, counter: 0.35,
+    elong: 0.82, girth: 1.3, flat: 0.92, tailFat: 0.85, neck: 0.66,
+    snout: 0.42, snoutPow: 0.95,
+    head: 0.92, counter: 0.35,
     shellW: 0.55, shellH: 0.35, shellRise: 0.55, shellArc: 1.1, shellRidge: 0,
-    fore: 0.42, foreChord: 1.2, foreSweep: 0.55, foreTilt: -0.15, foreLat: 0.9,
-    foreDrop: 0.3, foreAmp: 0.45, foreRate: 1.3, foreFlex: 0.6,
-    forePitch: 0.4, foreRow: 0.6, foreAlt: 1.0,
-    hind: 0.7, hindChord: 1.35, hindSweep: 1.05, hindTilt: -0.18, hindAmp: 0.6,
-    hindRate: 1.2, hindFlex: 0.55, hindPitch: 0.45, hindRow: 0.6, hindAlt: 1.0,
-    tusk: 0.28, tuskSplay: 0.5, tuskDrop: 0.25, tuskThick: 0.6,
-    bodyUnd: 0.9, undulateH: 1, bank: 2.85,
+    fore: 0.26, foreChord: 0.85, foreSweep: 0.4, foreTilt: -0.1, foreLat: 0.75,
+    foreDrop: 0.22, foreAmp: 0.3, foreRate: 1.5, foreFlex: 0.5,
+    forePitch: 0.35, foreRow: 0.5, foreAlt: 1.0,
+    hind: 1.05, hindChord: 1.7, hindSweep: 1.15, hindTilt: -0.2, hindAmp: 0.72,
+    hindRate: 1.15, hindFlex: 0.6, hindPitch: 0.5, hindRow: 0.7, hindAlt: 0.4,
+    tusk: 0, tuskSplay: 0, tuskDrop: 0, tuskThick: 0,
+    bodyUnd: 0.55, undulateH: 1, bank: 2.85,
     scale: 0.7, tempo: 1.2, speed: 0.9,
   },
 

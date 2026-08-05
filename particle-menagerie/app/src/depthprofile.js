@@ -192,8 +192,29 @@ export const FLOOR_COLOUR = Object.freeze([0.0345, 0.0335, 0.0322]);
 // entire point.
 export const AIRLIGHT = Object.freeze([0.0125, 0.0165, 0.0205]);
 // Rate per metre: reaches ~63% of full at 60 m, so the shallow zone gets most
-// of the desaturation and the abyss is untouched (it has no light to scatter).
+// of the desaturation.
 export const AIRLIGHT_K = 0.0165;
+
+// ...and the rate at which the airlight itself DIES. The saturating term above
+// is the horizontal-haze model, where the illumination along the view path is
+// ambient and constant. Underwater it is not: the light being scattered into
+// the path is the DOWNWELLING BEAM at that depth, so when the beam is gone the
+// in-scattering is gone with it. Without this factor the term asymptotes to
+// AIRLIGHT and stays there forever — at 420 m the water was emitting 0.0205
+// blue, i.e. MORE than the surface's own attenuated light, and the column
+// stopped getting darker with depth at all (the harness caught exactly this:
+// "surface lit 516156 vs mid 518400"). It also flooded the background at the
+// depths where the lit animals live, so a lanternfish's lamps stopped reading
+// against it.
+//
+// The product of the two exponentials gives the right shape: in-scattering
+// builds over the first tens of metres as path length accumulates, peaks in
+// the upper column, and is extinguished along with the daylight. 0.0075/m is
+// slower than any single channel's absorption (the scattered field has a far
+// longer effective path), so the desaturation survives where it was needed —
+// r/b at 43 m is 0.19 against 0.039 before the airlight existed — while 420 m
+// falls below the trails pass's black floor and reads as the dark it should.
+export const AIRLIGHT_DECAY = 0.0075;
 
 export const SCATTER_COLOUR = Object.freeze([0.0027, 0.0105, 0.0176]);
 export const SCATTER_K = 0.0028; // 1/m — the scattered component's own falloff

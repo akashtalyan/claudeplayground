@@ -33,6 +33,7 @@ import {
   SCATTER_K,
   AIRLIGHT,
   AIRLIGHT_K,
+  AIRLIGHT_DECAY,
   BIO_COLOUR,
   scatterGlow,
   bioGlow,
@@ -63,6 +64,7 @@ uniform float uShimmer;   // surface wave shimmer, 0..1
 uniform vec3 uFloor;      // abyssal sediment colour x presence
 uniform vec3 uAir;        // in-scattered (airlight) radiance, saturates with path
 uniform float uAirK;      // its rate per metre
+uniform float uAirDecay;  // and the rate at which the in-scattering itself dies
 uniform vec3 uScatter;    // scattered-daylight colour x weight, AT uDepthPos
 uniform float uScatterK;  // its falloff per metre (the within-frame gradient)
 uniform vec3 uBio;        // bioluminescent field colour x weight
@@ -106,7 +108,11 @@ void main() {
 	// makes real ocean read as a deep desaturated blue instead of cyan.
 	// The existing uScatter term is a different thing (the last of the
 	// DIRECT beam, gated to below 180 m); this one applies at every depth.
-	col += uAir * ( 1.0 - exp( -uAirK * dm ) ) * exp( -am * 0.12 );
+	// ...times the decay of the light being scattered. The saturating factor
+	// alone is the horizontal-haze model (constant illumination along the
+	// path); underwater the source is the downwelling beam, so when it is gone
+	// the in-scattering must go with it. See AIRLIGHT_DECAY.
+	col += uAir * ( 1.0 - exp( -uAirK * dm ) ) * exp( -uAirDecay * dm ) * exp( -am * 0.12 );
 
 	// --- the surface, above you ------------------------------------------
 	// A broad soft lobe centred ON the surface plane, not on the frame top:
@@ -241,6 +247,7 @@ export function createBackground(scene, opts = {}) {
       uFloor: { value: new THREE.Vector3() },
       uAir: { value: new THREE.Vector3(AIRLIGHT[0], AIRLIGHT[1], AIRLIGHT[2]) },
       uAirK: { value: AIRLIGHT_K },
+      uAirDecay: { value: AIRLIGHT_DECAY },
       uScatter: { value: new THREE.Vector3() },
       uScatterK: { value: SCATTER_K },
       uBio: { value: new THREE.Vector3() },

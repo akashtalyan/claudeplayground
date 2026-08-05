@@ -129,7 +129,17 @@ export const SURFACE_GLOW = Object.freeze([0.02, 0.026, 0.032]);
 // plain grew a field of saturated ORANGE comet tails. Keeping all three
 // channels clear of the threshold makes the haze and anything additive on top
 // of it colour-stable. The warmth is in the ratios, not in a crushed channel.
-export const FLOOR_COLOUR = Object.freeze([0.042, 0.04, 0.036]);
+// v3.8: dimmed as far as the 8/255 rule above allows and no further. The
+// bottom fifth of a deep frame was reading as a near-neutral slab at ~73%
+// white — fog rather than sediment — and the obvious fix is to halve this.
+// That is exactly what the paragraph above forbids: at [0.023, 0.0222, 0.0205]
+// all three channels fall BELOW 0.0314, the trails pass starts subtracting its
+// epsilon from each of them, and because the subtraction is absolute it eats
+// proportionally more of the smallest channel. The plain would go dark AND
+// warm-shifted, and the marine-snow trails over it would grow the orange tails
+// this comment was written about. So the dimming stops at the threshold: every
+// channel clears 0.0314 with margin, which is ~20% off rather than ~45%.
+export const FLOOR_COLOUR = Object.freeze([0.0345, 0.0335, 0.0322]);
 
 // ---- the two lights that are left below the photic zone -------------------
 // Beer–Lambert above accounts for the DIRECT beam only, and the direct beam is
@@ -189,7 +199,21 @@ export const SCATTER_COLOUR = Object.freeze([0.0027, 0.0105, 0.0176]);
 export const SCATTER_K = 0.0028; // 1/m — the scattered component's own falloff
 const SCATTER_IN_M = 180; // fades in from here...
 const SCATTER_FULL_M = 330; // ...to here, then decays at SCATTER_K
-export const BIO_COLOUR = Object.freeze([0.0042, 0.03, 0.026]);
+// The colour of the background bioluminescent field. This was [0.0042, 0.03,
+// 0.026] — GREEN-dominant and 0.86 saturated, which is what turned the deep
+// column into an emerald nebula below ~500 m. Marine bioluminescence peaks at
+// roughly 470-490 nm, which is blue-green but genuinely more BLUE than green:
+// the wavelengths that travel furthest in clear water are the ones deep-sea
+// light evolved to emit. Blue-dominant with a little red in it (saturation
+// 0.71 rather than 0.86) is both closer to the real emission and consistent
+// with the airlight fix above — no channel is allowed to sit at zero.
+// Magnitude is 0.62x the v3.7 value as well as being re-hued. At full strength
+// the field was adding more green than the water itself carried, so a veil
+// covering half the frame read as a discrete glowing BLOB rather than as
+// mottling in the dark. Lowering it also keeps the deep's mean luminance below
+// mid-water's (a harness invariant) despite the raised contrast floor in
+// background.js.
+export const BIO_COLOUR = Object.freeze([0.0061, 0.0152, 0.0208]);
 const BIO_GATE = 0.1; // `bio` at NEUTRAL_DEPTH_M is 0.08, so this zeroes it there
 const BIO_SHAPE = 0.85;
 

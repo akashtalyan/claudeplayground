@@ -161,7 +161,11 @@ void main() {
 		+ 0.7 * sin( bp * 1.63 - bx * 0.37 - uBioPhase * 0.09 )
 		+ 0.45 * sin( bp * 3.4 + bx * 1.13 + uBioPhase * 0.05 );
 	veil = clamp( veil * 0.36 + 0.5, 0.0, 1.0 );
-	col += uBio * ( 0.18 + 0.82 * veil * veil );
+	// veil*veil concentrated the field into a few high-contrast blobs, which
+	// with the old green read as a nebula rather than as a veil. Squaring is
+	// what makes the dark parts DARK, so the contrast is kept but its floor is
+	// raised: patchy, still clearly non-uniform, no longer a hard-edged cloud.
+	col += uBio * ( 0.34 + 0.66 * veil * veil );
 
 	// --- the floor, below you --------------------------------------------
 	// Suspended silt hanging over the abyssal plain: a soft-edged wash rising

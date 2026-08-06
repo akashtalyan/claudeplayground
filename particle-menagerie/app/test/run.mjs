@@ -182,18 +182,30 @@ async function main() {
               }
               return s > 0 ? { x: sx / s, y: sy / s, mass: s } : { x: 0, y: 0, mass: 0 };
             };
+            // `subject` = pixels either frame considers lit, i.e. the animal
+            // and its glow rather than the empty water around it. changedFrac
+            // (below) is a fraction of the whole central box, which makes it a
+            // function of how BIG the creature is on screen as much as of what
+            // changed: a 5 cm lanternfish covers ~0.7% of that box, so a bound
+            // of 2% is unreachable for it at any brightness. changedFracSubject
+            // asks the question the bio assertion actually means -- of the
+            // animal itself, how much of it changed -- and is size-independent.
+            let subject = 0;
             for (let i = 0; i < A.d.length; i += 4) {
               const la = (A.d[i] + A.d[i + 1] + A.d[i + 2]) / 3;
               const lb = (B.d[i] + B.d[i + 1] + B.d[i + 2]) / 3;
               const dd = Math.abs(la - lb);
               sumAbs += dd;
               if (dd > 12) changed++;
+              if (la > 25 || lb > 25) subject++;
             }
             const px = A.d.length / 4;
             const ca = cen(A);
             const cb = cen(B);
             return {
               changedFrac: changed / px,
+              changedFracSubject: subject > 0 ? changed / subject : 0,
+              subjectPx: subject,
               meanAbsDiff: sumAbs / px,
               centroidShiftPx: Math.hypot(ca.x - cb.x, ca.y - cb.y),
               massRatio: cb.mass > 0 ? ca.mass / cb.mass : 0,
@@ -473,6 +485,8 @@ async function main() {
             meanLuma: +A.stats.meanLuma.toFixed(2),
             deltaMeanLuma: +(A.stats.meanLuma - B.stats.meanLuma).toFixed(3),
             changedFrac: +d.changedFrac.toFixed(4),
+            changedFracSubject: +d.changedFracSubject.toFixed(4),
+            subjectPx: d.subjectPx,
           };
           s.subjects.push(rec);
           if (A.c.bioPattern !== pattern) throw new Error(`bio: ${name} renders pattern '${A.c.bioPattern}', expected '${pattern}'`);
@@ -486,15 +500,25 @@ async function main() {
           if (A.stats.blownFrac > 0.08) throw new Error(`bio-${tag}: ${(A.stats.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
           if (B.stats.blownFrac > 0.08) throw new Error(`bio-${tag}-off: ${(B.stats.blownFrac * 100).toFixed(2)}% blown (bound 8%)`);
           if (A.c.lit) {
-            // the layer must be DOING something — this is exactly the check
-            // the first v3.7 draft would have failed (it measured under 1.5%)
-            if (!(d.changedFrac > 0.02)) {
-              throw new Error(`bio-${tag}: turning the layer off changes only ${(d.changedFrac * 100).toFixed(2)}% of the frame — ${name} is indistinguishable from a non-luminous animal`);
+            // The layer must be DOING something — this is exactly the check the
+            // first v3.7 draft would have failed (it measured under 1.5%).
+            //
+            // v3.8 measures it against the ANIMAL rather than against the box.
+            // The old bound was 2% of the central box, which silently required
+            // the creature to be big on screen: once fish.js gave the
+            // lanternfish a real 5 cm size (scale 0.35) it covered ~0.7% of
+            // that box, so no amount of light could have passed — the test was
+            // reading creature size, not luminosity. 20% of the animal's own
+            // lit footprint is a strictly harder question for a dark draft to
+            // pass (it changed almost nothing ANYWHERE, so it fails either
+            // form) and is independent of how large the subject is.
+            if (!(d.changedFracSubject > 0.2)) {
+              throw new Error(`bio-${tag}: turning the layer off changes only ${(d.changedFracSubject * 100).toFixed(2)}% of ${name}'s own lit footprint (${d.subjectPx} px) — it is indistinguishable from a non-luminous animal`);
             }
           } else {
             // the control anchors the measurement: no light, no difference
-            if (d.changedFrac > 0.001) {
-              throw new Error(`bio-control: ${name} makes no light but changed ${(d.changedFrac * 100).toFixed(2)}% when the light layer was switched off`);
+            if (d.changedFracSubject > 0.02) {
+              throw new Error(`bio-control: ${name} makes no light but ${(d.changedFracSubject * 100).toFixed(2)}% of its footprint changed when the light layer was switched off`);
             }
           }
         }

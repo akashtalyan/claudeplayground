@@ -883,7 +883,14 @@ function boot() {
         // asked for, so "goldfish" looked like it had produced whatever was
         // already on the board. Selecting it names it on the plate the moment
         // it forms. QUIET, so it does not raise the inspector over the ocean.
-        if (opts.select !== false) spec.selectOnSpawn = true;
+        // ONLY an explicit summons. `travel: false` is how loadBoard marks a
+        // board load or a hash restore, which set the vessel's position
+        // themselves and must not have it moved out from under them, and
+        // `center` is the harness's museum pose. Selecting on those paths is
+        // what made the hash restore land at 853 m instead of 430 m.
+        if (opts.travel !== false && !opts.center && opts.select !== false) {
+          spec.selectOnSpawn = true;
+        }
       }
       state.pending.push({ due: state.simT + i * SPAWN_STAGGER * (opts.now ? 0 : 1), spec });
     }
@@ -1450,8 +1457,13 @@ function boot() {
     // to it. Clicking one you can see never moves the camera (it is in band by
     // definition), so this only fires for a programmatic / off-screen select,
     // where the alternative is a gauge plate anchored to nothing.
-    controls.onSelectionChange((snap) => {
+    controls.onSelectionChange((snap, meta) => {
       if (!snap || !column) return;
+      // A quiet selection is the app selecting on the user's behalf, and the
+      // only path that does it (a summons) has already commanded its own
+      // travel. Re-deriving it here would issue a SECOND set-point from the
+      // creature's live position — a moving target — and fight the first.
+      if (meta && meta.quiet) return;
       for (const c of state.creatures) {
         if (c.id !== snap.id || c.state !== 'alive') continue;
         ensureVisible(c.points.position.y, c.points.position.z, c.rad, {

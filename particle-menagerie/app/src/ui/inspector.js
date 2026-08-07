@@ -1326,12 +1326,17 @@ export function initInspector(controls, deps = {}) {
   // integrator says otherwise, that is what raises the inspector. Deselection
   // — empty water, release, Escape on the board — closes it.
   const openOnSelect = deps.openOnSelect !== false;
-  const off = controls.onSelectionChange((sel) => {
+  const off = controls.onSelectionChange((sel, meta) => {
     if (!sel) {
       if (open_) close();
       return;
     }
-    if (openOnSelect) open(sel.id);
+    // A QUIET selection is one the app made on the user's behalf (summoning by
+    // name selects what it summoned). Raising the modal for those would put a
+    // panel over the ocean every time a name is typed, so a quiet selection
+    // only FOLLOWS an already-open modal — which is the case that matters:
+    // type a name while inspecting and the pane shows what you just asked for.
+    if (openOnSelect && !(meta && meta.quiet)) open(sel.id);
     else if (open_) open(sel.id); // already up: follow the selection
   });
 

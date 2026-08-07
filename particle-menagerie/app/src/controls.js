@@ -499,14 +499,22 @@ export function createControls(engine) {
     };
   }
 
-  function select(id) {
+  /**
+   * @param {string|null} id
+   * @param {{quiet?: boolean}} [opts]  quiet: this selection was not a click.
+   *   Listeners get it as a second argument so a UI can tell "the user picked
+   *   this" from "the app picked this for them" — the inspector uses it to
+   *   avoid throwing a modal up over the ocean every time a name is typed.
+   */
+  function select(id, opts = {}) {
     const next = id == null ? null : byId(id) ? id : null;
     if (next === selectedId) return;
     selectedId = next;
     state.focus = next ? byId(next) : null;
     const snap = getSelected();
+    const meta = { quiet: !!opts.quiet };
     for (const cb of selCbs) {
-      try { cb(snap); } catch { /* UI's problem, not the engine's */ }
+      try { cb(snap, meta); } catch { /* UI's problem, not the engine's */ }
     }
   }
 

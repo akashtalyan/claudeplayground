@@ -875,7 +875,16 @@ function boot() {
         spec.heading = Math.PI * 0.08;
         spec.speed = 0;
       }
-      if (!first) first = spec;
+      if (!first) {
+        first = spec;
+        // v3.8 — the vessel travels to a summoned creature, and that journey
+        // can take 15+ seconds across the transect. For all of it the porthole
+        // showed empty water with nothing marking which animal was the one you
+        // asked for, so "goldfish" looked like it had produced whatever was
+        // already on the board. Selecting it names it on the plate the moment
+        // it forms. QUIET, so it does not raise the inspector over the ocean.
+        if (opts.select !== false) spec.selectOnSpawn = true;
+      }
       state.pending.push({ due: state.simT + i * SPAWN_STAGGER * (opts.now ? 0 : 1), spec });
     }
     // v3.4 — a summoned creature must be VISIBLE. If its species lives outside
@@ -1696,6 +1705,7 @@ function boot() {
       const c = new Creature(spec);
       state.creatures.push(c);
       scene.add(c.points);
+      if (spec.selectOnSpawn && controls) controls.select(c.id, { quiet: true });
     }
     const sway = state.sway * (state.turbulence ?? 1);
     const cullMargin = state.H * CULL_MARGIN_SCREENS;

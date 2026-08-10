@@ -32,6 +32,22 @@ uniform float uAperture;
 uniform float uDpr;
 uniform float uMaxPointPx;
 uniform float uSmall;
+// ---- bioluminescence (v3.7) — see the BIO block in main() ------------------
+// uBio       x strength (0 = the whole layer is off), y pattern mode,
+//            z rate in Hz, w pattern parameter (see each mode)
+// uBioAim    xyz the body-fixed surface the photophores sit on (local space,
+//            unit; (0,-1,0) = the belly), w the angular width of that band
+// uBioLure   xyz the body-fixed direction the lure sits in (local, unit),
+//            w the aRing fraction that is "the lure's station" — positive
+//            measures from the head/root end, negative from the tail/tip end
+// uBioColor / uBioLureColor  linear emissive radiance, the lure's already
+//            scaled by its own gain (a red dragonfish lure is not a red body)
+uniform vec4 uBio;
+uniform vec4 uBioAim;
+uniform vec4 uBioLure;
+uniform vec3 uBioColor;
+uniform vec3 uBioLureColor;
+uniform float uBioGain;
 
 attribute float aSize;
 attribute float aTw;
@@ -81,6 +97,112 @@ const float BLEED_PAD = 1.45;
 const float BRIGHT_LO = 0.6;
 const float BRIGHT_HI = 1.6;
 
+// ---------------------------------------------------------------------------
+// Bioluminescence (v3.7) — light the animal MAKES, not light it is lit BY
+// ---------------------------------------------------------------------------
+//
+// Everything above this line is reflected light: it multiplies uLightColor, it
+// bends around a light direction, and by the time it reaches the midnight zone
+// the depth profile has extinguished it. Bioluminescence is the other kind,
+// and three properties define it. All three are load-bearing below:
+//
+//   1. NO LIGHT DIRECTION. The emission never touches lambert, rim, uLightDir
+//      or uLightColor. A photophore facing away from the sun is exactly as
+//      bright as one facing it, because the sun has nothing to do with it.
+//
+//   2. NOT ATTENUATED BY THE WATER ABOVE THE ANIMAL, ATTENUATED BY THE WATER
+//      IN FRONT OF IT. Its photons start AT the dot, so the whole column
+//      between the sun and the creature — which lives in uLightColor and in
+//      the depth profile that drives it — must not touch it. The column
+//      between the creature and the camera must: that is the exp(-ext) term
+//      below, and the emission is added to 'lit' immediately BEFORE it, so it
+//      is fogged exactly once, like every other photon leaving this dot.
+//
+//   3. BODY-FIXED. Every pattern is a function of the LOCAL normal, the LOCAL
+//      position and aRing (the head->tail / root->tip fraction, ring-quantized
+//      by the geometry spec). A row of photophores therefore stays on the
+//      flank it was drawn on however the animal turns, and a lure stays at the
+//      head while the head swings — the pattern is anatomy, not a screen
+//      effect.
+//
+// uBio.x == 0 skips the block entirely: a creature with no bioluminescence
+// renders bit-for-bit as it did in v3.6, and so does every ?scene= spike.
+//
+// Pattern modes (the canonical list lives in src/biolum.js — these five
+// numbers are the contract between that module and this shader):
+const float BIO_ROWS = 1.0;      // photophore rows: counter-illumination
+const float BIO_LURE = 2.0;      // one hot point off the head: angler, dragonfish
+const float BIO_PULSE = 3.0;     // whole-body pulse / Atolla's spinning alarm
+const float BIO_GLOW = 4.0;      // diffuse glow: dinoflagellates, crystal jelly
+const float BIO_ROWS_LURE = 5.0; // both — the dragonfish case
+// Ceiling on emitted radiance per channel, pre-fog, pre-gain. The additive
+// pileup bound (8% of pixels fully white) is a budget, not a suggestion: a
+// lure is a handful of dots so it is allowed to be hot, but nothing here may
+// run away. Bioluminescence has to read as INTENSE AGAINST BLACK — which is
+// saturated colour plus the wide bleed lobe — not as a white blob.
+const float BIO_MAX = 3.0;
+// A lure is a lantern, not a brighter scale dot: the sprite itself grows,
+// BEFORE the wide-lobe pad, so its core and halo grow with it and it reads as
+// one point of light hanging off the animal. Energy therefore grows as the
+// square of this — which is why it is small, and why it reaches only the few
+// dots at the lure's own station.
+const float BIO_LURE_PX = 1.75;
+// ...and the other half of "reads as INTENSE AGAINST BLACK", which v3.7 shipped
+// without and which is why the whole layer measured invisible: how much of the
+// REFLECTED term survives on the parts of a light-making animal that are not
+// making light.
+//
+// THE FAILURE THIS FIXES. Emission was added on top of a 'lit' value that is
+// already at the tonemap's white point for these creatures — the directional
+// and ambient terms do not fall off with depth, so a lanternfish at 126 m
+// accumulates exactly as much reflected light as a cod at 175 m, and a dotted
+// body of overlapping additive sprites saturates ACES long before the
+// photophores get a word in. Turning the entire layer off changed the frame by
+// under 1.5%, and a non-luminous control was indistinguishable from a lantern-
+// fish side by side. Adding MORE emission cannot fix that: there is no headroom
+// above white. Taking light AWAY from everything that is not a photophore can,
+// and it is also the truth — at 600 m there is nothing to reflect, and what you
+// see of an animal down there is its lamps and almost nothing else.
+//
+// Scoped so it cannot leak: the term rides uBioGain, which is 0 for every
+// creature the integrator does not light and is the layer's documented on/off
+// A/B switch — so uBioGain = 0 stays bit-for-bit v3.6, including the ?scene=
+// spikes, and a creature with uBio.x == 0 never enters the block at all. It
+// also rides uBioGain's own DEPTH curve (biolum.js bioDepthGain), so the animal
+// counter-shades as the sun leaves: nearly no effect on a sunlit shelf, full
+// effect in the midnight zone. That is the same physics from the other end.
+const float BIO_DARK = 0.15;
+
+// A latitude band on the body: how close this dot's local normal is to 'aim'.
+// aim (0,-1,0) is the belly (counter-illumination's home), (0,0,±1) a flank,
+// (0,1,0) the dorsal surface. Gaussian in the angular error, so the row has no
+// hard edge to crawl or alias.
+float bioBand( vec3 nl, vec3 aim, float width ) {
+	float x = ( 1.0 - dot( nl, aim ) ) / max( width, 1e-3 );
+	return exp( -x * x );
+}
+
+// Discrete photophores along the body. aRing is ring-quantized (geometry spec
+// section 7), so a periodic function of it lights WHOLE STATIONS: a row of
+// separate lamps with dark gaps between them, which is what a photophore row
+// looks like, rather than a painted stripe.
+float bioLamps( float ring, float pitch ) {
+	float s = 0.5 + 0.5 * cos( TAU * ring * pitch );
+	s *= s;
+	return s * s * s; // ^6 — tight lamps, dark gaps
+}
+
+// The lure's station: the head end (frac > 0) or the tip end (frac < 0) of the
+// aRing parameter. Anatomy again — every archetype's aRing runs head/root 0 to
+// tail/tip 1, so this is the same "front of the animal" everywhere.
+// (Both branches keep edge0 < edge1: GLSL leaves smoothstep with reversed
+// edges undefined, so the head case is written as 1 - the rising ramp.)
+float bioStation( float ring, float frac ) {
+	return frac >= 0.0
+		? 1.0 - smoothstep( 0.0, max( frac, 1e-3 ), ring )
+		: smoothstep( 1.0 + min( frac, -1e-3 ), 1.0, ring );
+}
+
 void main() {
 
 	vec4 mv = modelViewMatrix * vec4( position, 1.0 );
@@ -95,12 +217,102 @@ void main() {
 	// alpha x 1/k^2. uFocusZ is the focus distance as positive view-space depth.
 	float k = min( 1.0 + abs( viewDist - uFocusZ ) * uAperture, 4.0 );
 
+	// Hoisted from below (same expression, same operand — the value is
+	// unchanged): the bioluminescence block needs it for the counter-
+	// illumination lobe, and it is computed before the point size for that.
+	vec3 viewDir = normalize( -mv.xyz );
+
+	// ---- bioluminescence: which dots emit, and how much (see the block above)
+	// bioBody is in units of uBioColor, bioLure in units of uBioLureColor, and
+	// both are exactly 0.0 — with no work done — when the layer is off.
+	float bioBody = 0.0;
+	float bioLure = 0.0;
+	float bioPx = 1.0; // sprite growth for a lure dot; exactly 1.0 otherwise
+	if ( uBio.x > 0.0 ) {
+
+		// LOCAL normal: body-fixed, so the pattern is painted on the animal and
+		// not on the screen. Eased and therefore non-unit (geometry spec), so
+		// renormalize with the same degenerate guard the view normal uses.
+		vec3 nl = normal / max( length( normal ), 1e-5 );
+		float mode = uBio.y;
+		float ph = uTime * uBio.z; // cycles, not radians — TAU applied at use
+		// Mode dispatch, written once so the two combined modes cannot drift
+		// apart from the single ones. These are uniform branches: every dot of
+		// a draw call takes the same path, so the cost is one mode, not five.
+		bool doRows = ( mode > BIO_ROWS - 0.5 && mode < BIO_ROWS + 0.5 ) || mode > BIO_ROWS_LURE - 0.5;
+		bool doPulse = mode > BIO_PULSE - 0.5 && mode < BIO_PULSE + 0.5;
+		bool doGlow = mode > BIO_GLOW - 0.5 && mode < BIO_GLOW + 0.5;
+		bool doLure = ( mode > BIO_LURE - 0.5 && mode < BIO_LURE + 0.5 ) || mode > BIO_ROWS_LURE - 0.5;
+
+		if ( doRows ) {
+			// ROWS — counter-illumination, the commonest use of light in the
+			// ocean: a row of ventral lamps whose output cancels the animal's
+			// silhouette against the dim light from above. It is therefore
+			// AIMED: brightest to an eye directly below it. The floor keeps it
+			// legible from the side (which is where this camera lives) instead
+			// of switching the adaptation off whenever you are not its prey.
+			vec3 aimV = normalize( normalMatrix * uBioAim.xyz );
+			float lobe = 0.6 + 0.4 * clamp( dot( aimV, viewDir ), 0.0, 1.0 );
+			bioBody = bioBand( nl, uBioAim.xyz, uBioAim.w )
+				* bioLamps( aRing, uBio.w )
+				* ( 0.78 + 0.22 * sin( TAU * ph + aRing * 9.0 ) )
+				* lobe;
+		} else if ( doPulse ) {
+			// PULSE — a wave of light running the length of the body or down
+			// the bell, and at uBio.w -> 1 the atolla jellyfish's burglar
+			// alarm: a narrow sector spinning around the bell to call in
+			// something big enough to eat whatever is holding it. The spin is
+			// about the LOCAL Y axis, which is the bell axis of every
+			// archetype that has a bell.
+			float wave = 0.5 + 0.5 * cos( TAU * ( ph - aRing * 0.9 ) );
+			wave *= wave * wave;
+			// atan(0,0) is undefined in GLSL and a dot can sit exactly on the
+			// bell axis, so the degenerate case is answered explicitly rather
+			// than left to leak a NaN into the emitted colour.
+			vec2 pxz = position.xz;
+			float az = dot( pxz, pxz ) > 1e-12 ? atan( pxz.y, pxz.x ) : 0.0;
+			float spin = 0.5 + 0.5 * cos( az - TAU * ph );
+			spin *= spin;
+			spin *= spin;
+			spin *= spin; // ^8 — a narrow rotating sector
+			bioBody = mix( wave, spin, clamp( uBio.w, 0.0, 1.0 ) );
+		} else if ( doGlow ) {
+			// GLOW — a diffuse whole-body field: dinoflagellates in the water
+			// the animal disturbs, a crystal jelly's ring. uBio.w is how much
+			// of it is per-cell sparkle (aTw is the dot's own static phase)
+			// rather than one even sheet of light.
+			float sparkle = 0.5 + 0.5 * sin( TAU * ph + aTw );
+			bioBody = mix( 1.0, sparkle, clamp( uBio.w, 0.0, 1.0 ) )
+				* ( 0.82 + 0.18 * sin( TAU * ph * 0.6 + aRing * 3.0 ) );
+		}
+
+		if ( doLure ) {
+			// LURE — the esca of an anglerfish, the barbel of a dragonfish: the
+			// few dots at the head's own station whose surface faces the lure's
+			// direction, driven hot and grown (BIO_LURE_PX) so they read as one
+			// lamp standing off the head rather than as a bright patch of skin.
+			// It twitches, because a still lure catches nothing.
+			bioLure = bioStation( aRing, uBioLure.w )
+				* bioBand( nl, uBioLure.xyz, 0.62 )
+				* ( 0.62 + 0.38 * sin( TAU * ph ) );
+		}
+
+		// A pattern drawn on a cloud of unformed dots is not a pattern — same
+		// reasoning as the directional terms below, which also ride uFormation.
+		float form = mix( 0.2, 1.0, uFormation );
+		bioBody *= form;
+		bioLure *= form;
+		bioPx = mix( 1.0, BIO_LURE_PX, clamp( bioLure, 0.0, 1.0 ) );
+	}
+
 	// Point size policy (rule 8): clamp(base*dpr*atten(z), 1, min(cap*dpr, GLmax)).
 	// uDpr is the raster ratio of the target being drawn into, so it carries the
 	// v3.2 supersample factor (quality.js) — sprites keep their CSS-px size
 	// through the downsample. gl_PointSize itself is assigned below, once the
 	// dot's brightness is known (see the wide-lobe pad).
-	float px = aSize * uDpr * ( REF_DIST / viewDist ) * k;
+	// bioPx is exactly 1.0 for every dot that is not a lure, and multiplying by
+	// 1.0 is exact, so the size of every other dot in the app is untouched.
+	float px = aSize * uDpr * ( REF_DIST / viewDist ) * k * bioPx;
 	float maxPx = min( APP_CAP_PX * uDpr, uMaxPointPx );
 
 	// Sub-1.5-raster-px fade uses the UNCLAMPED, UNPADDED size so the 1px floor
@@ -129,7 +341,7 @@ void main() {
 	float lambert = clamp( ( dot( n, L ) + WRAP ) / ( 1.0 + WRAP ), 0.0, 1.0 );
 
 	// Rim on silhouette normals; abs() because dots are two-sided emitters.
-	vec3 viewDir = normalize( -mv.xyz );
+	// (viewDir is computed above, before the point size — see the bio block.)
 	float rim = pow( 1.0 - abs( dot( n, viewDir ) ), 3.0 ) * uRim;
 
 	// Twinkle phase: per-dot aTw plus a slow per-ring offset (rib shimmer).
@@ -150,6 +362,28 @@ void main() {
 	float ca = cos( hueA );
 	float sa = sin( hueA );
 	lit = lit * ca + cross( GREY, lit ) * sa + GREY * dot( GREY, lit ) * ( 1.0 - ca );
+
+	// ---- the animal's OWN light -------------------------------------------
+	// Added here and nowhere else, and the position in the chain IS the
+	// physics (see the BIO block above): AFTER every directional and reflected
+	// term, so no sun and no water above the animal can touch it, and BEFORE
+	// the aerial-perspective rotation and the fog below, so the water between
+	// the animal and the camera attenuates it exactly once — like every other
+	// photon leaving this dot. It is not multiplied by the creature's own
+	// uColor: a red jellyfish still glows blue-green, because the pigment and
+	// the photophore are different organs.
+	if ( uBio.x > 0.0 ) {
+		float amp = uBio.x * uBioGain;
+		// Counter-shade BEFORE emitting (see BIO_DARK): the reflected term is
+		// scaled toward BIO_DARK everywhere this dot is NOT part of a pattern,
+		// so the lamps have somewhere to be brighter THAN. At uBioGain 0 the
+		// factor is exactly 1.0 and at a fully-lit dot it is exactly 1.0, so
+		// neither the off state nor a photophore is touched.
+		float g = clamp( uBioGain, 0.0, 1.0 );
+		float pat = clamp( bioBody + bioLure, 0.0, 1.0 );
+		lit *= 1.0 - g * ( 1.0 - BIO_DARK ) * ( 1.0 - pat );
+		lit += min( uBioColor * ( amp * bioBody ) + uBioLureColor * ( amp * bioLure ), vec3( BIO_MAX ) );
+	}
 
 	// Exponential fog is part of the emitted light, applied pre-accumulation so
 	// it lands in the trail history (frame-graph rule 9 / spec section 9).
@@ -183,7 +417,16 @@ void main() {
 	// bright dots grow, and never the merged dots of a small creature (vMerge),
 	// whose skirt Phase F deliberately tightened.
 	float bright = max( vColor.r, max( vColor.g, vColor.b ) ) * uAlpha * vAlphaExtra;
-	float engage = smoothstep( BRIGHT_LO, BRIGHT_HI, bright ) * ( 1.0 - clamp( vMerge, 0.0, 1.0 ) );
+	// A bioluminescent dot takes the wide lobe on its own account, whatever the
+	// fog has left of its brightness: the water immediately around a photophore
+	// scatters its light into a soft skirt, and that skirt — not raw amplitude
+	// — is what makes a lamp read as a lamp instead of a hot pixel. Exactly 0
+	// when the layer is off, and max(x, 0.0) is x, so nothing else moves.
+	// Driven by the EMITTED amplitude, not by the raw pattern: a faint diffuse
+	// glow does not get to buy the padded sprite that a photophore earns, so
+	// the fill-rate cost (Risk 5) stays proportional to the light on screen.
+	float bioEng = smoothstep( 0.12, 0.55, ( bioBody + bioLure ) * uBio.x * uBioGain );
+	float engage = max( smoothstep( BRIGHT_LO, BRIGHT_HI, bright ), bioEng ) * ( 1.0 - clamp( vMerge, 0.0, 1.0 ) );
 	float got = clamp( px * mix( 1.0, BLEED_PAD, engage ), 1.0, maxPx );
 	gl_PointSize = got;
 	// If the app/GL cap bit, the pad we actually got is smaller than asked for:
@@ -300,6 +543,15 @@ export function createGlobalUniforms( renderer ) {
 		// Strength of that rotation at infinite depth, before AER_MAX clamps it.
 		uDepthTint: { value: 0.55 },
 		uGain: { value: 1.0 },
+		// Master on the bioluminescence layer (src/biolum.js). GLOBAL on
+		// purpose: the depth profile and the weather presets both have an
+		// opinion about how much of the animals' own light you should be
+		// seeing ('bioluminescent bay' wants more of it; the sunlit shelf
+		// wants less, because at 20 m nothing can compete with the sun), and
+		// they should be able to say so with one number instead of touching
+		// every creature. 1.0 is the identity; 0.0 turns the layer off
+		// everywhere, which is also how to A/B it.
+		uBioGain: { value: 1.0 },
 		uFocusZ: { value: 12.0 },
 		uAperture: { value: 0.05 },
 		uDpr,
@@ -319,6 +571,13 @@ export function createGlobalUniforms( renderer ) {
 			},
 			getDepthTint: () => uniforms.uDepthTint.value,
 			setWaterColor: ( r, g, b ) => uniforms.uWaterColor.value.set( r, g, b ),
+			// v3.7 bioluminescence master (see uBioGain). 0 is an exact
+			// identity with v3.6 for every creature, so on/off is a clean
+			// measurement of the whole layer.
+			setBioGain: ( v ) => {
+				uniforms.uBioGain.value = Math.max( 0, v );
+			},
+			getBioGain: () => uniforms.uBioGain.value,
 		};
 	}
 
@@ -340,6 +599,18 @@ export function createDotMaterial( globalUniforms ) {
 			// camDist, set by the creature integrator; 0 = correction off (the
 			// default — plankton, sediment, and the feeding mote stay untouched)
 			uSmall: { value: 0.0 },
+			// bioluminescence (v3.7) — per-creature, and OFF by default:
+			// uBio.x == 0 means the shader never enters the block, so any
+			// creature the integrator does not light is bit-identical to
+			// v3.6. src/biolum.js owns every value that goes in here; call
+			// applyBio( material, bioForSpec( spec ) ) once at spawn.
+			// Defaults below are inert but sane: belly rows, a lure off the
+			// head, and the ~480 nm blue-green that most marine light is.
+			uBio: { value: new THREE.Vector4( 0.0, 1.0, 0.12, 18.0 ) },
+			uBioAim: { value: new THREE.Vector4( 0.0, -1.0, 0.0, 0.55 ) },
+			uBioLure: { value: new THREE.Vector4( -0.55, 0.83, 0.0, 0.06 ) },
+			uBioColor: { value: new THREE.Color( 0.0, 0.36, 1.0 ) },
+			uBioLureColor: { value: new THREE.Color( 0.0, 0.36, 1.0 ) },
 			// global — same object references across all materials, on purpose
 			uLightDir: globalUniforms.uLightDir,
 			uLightColor: globalUniforms.uLightColor,
@@ -351,6 +622,7 @@ export function createDotMaterial( globalUniforms ) {
 			uWaterColor: globalUniforms.uWaterColor,
 			uDepthTint: globalUniforms.uDepthTint,
 			uGain: globalUniforms.uGain,
+			uBioGain: globalUniforms.uBioGain,
 			uFocusZ: globalUniforms.uFocusZ,
 			uAperture: globalUniforms.uAperture,
 			uDpr: globalUniforms.uDpr,

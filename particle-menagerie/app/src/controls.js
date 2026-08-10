@@ -499,18 +499,30 @@ export function createControls(engine) {
     };
   }
 
-  function select(id) {
+  /**
+   * @param {string|null} id
+   * @param {{quiet?: boolean}} [opts]  quiet: this selection was not a click.
+   *   Listeners get it as a second argument so a UI can tell "the user picked
+   *   this" from "the app picked this for them" — the inspector uses it to
+   *   avoid throwing a modal up over the ocean every time a name is typed.
+   */
+  function select(id, opts = {}) {
     const next = id == null ? null : byId(id) ? id : null;
     if (next === selectedId) return;
     selectedId = next;
     state.focus = next ? byId(next) : null;
     const snap = getSelected();
+    const meta = { quiet: !!opts.quiet };
     for (const cb of selCbs) {
-      try { cb(snap); } catch { /* UI's problem, not the engine's */ }
+      try { cb(snap, meta); } catch { /* UI's problem, not the engine's */ }
     }
   }
 
   canvas.addEventListener('click', (e) => {
+    // v3.7: a horizontal PAN over the porthole ends in a click event. The
+    // column keeps `dragging()` true through that click, so navigation never
+    // silently deselects the creature you were looking at.
+    if (engine.canSelect && !engine.canSelect()) return;
     const hit = hitTest(e.clientX, e.clientY);
     select(hit ? hit.id : null); // empty-water click deselects
   });
@@ -680,6 +692,13 @@ export function createControls(engine) {
       if (!s) continue;
       if (s.startsWith('p=')) {
         presetName = s.slice(2);
+      } else if (s.startsWith('d=') || s.startsWith('s=')) {
+        // v3.4 — the vessel's depth ('d='), v3.7 — its position along the
+        // transect ('s=', metres offshore). main.js owns both (it owns the
+        // column and reads these segments before the engine even exists);
+        // skipped here so neither is ever mistaken for a creature name. Leaving
+        // 's=' out of this list summoned a creature called "s=9000".
+        continue;
       } else {
         const m = /^(\d+)=(.*)$/.exec(s);
         if (m) ctrls.set(+m[1], decodeCtrl(m[2]));
@@ -758,6 +777,12 @@ export function createControls(engine) {
     getPreset: () => targetPreset,
     presetNames: () => PRESET_ORDER.slice(),
     sceneValues: () => clonePreset(live), // live scene params (UI/tests may read)
+    // v3.4 per-frame path: the SAME live object, not a clone. main.js reads
+    // lightColor/fogTint/gain off it every frame to compose depth on top of the
+    // crossfaded weather, and a clone per frame is an allocation the frame
+    // budget forbids. Read it, never retain or mutate it — use sceneValues()
+    // if you need a snapshot you can keep.
+    liveScene: () => live,
     // lifecycle
     summon,
     reform,

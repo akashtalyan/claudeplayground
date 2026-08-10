@@ -101,6 +101,9 @@ const frac = (v) => v - Math.floor(v);
  * @param {HTMLCanvasElement} deps.canvas
  * @param {object} deps.state - integrator state (W, H read-only here)
  * @param {() => number} deps.getCamDist
+ * @param {() => number} [deps.getCamY] - v3.4: the porthole's world height, so
+ *        a screen click maps into the water column the user is actually
+ *        looking at. Defaults to 0 (the v3.3 stationary camera).
  * @param {object} deps.globalUniforms - shared uniform set (shaders/dots.js)
  * @param {(x:number, y:number) => any} deps.hitTest - controls.hitTest;
  *        truthy = the click landed on a creature (select, not summon)
@@ -113,8 +116,11 @@ export function initGather({
   canvas,
   state,
   getCamDist,
+  getCamY,
+  getCamX,
   globalUniforms,
   hitTest,
+  canDrop,
   zRange = [-340, 40],
   z = BEACON_Z,
   hold = HOLD_S,
@@ -306,11 +312,19 @@ export function initGather({
     return true;
   }
 
-  // CSS px -> world at the beacon plane (the click path; also the test hook)
+  // CSS px -> world at the beacon plane (the click path; also the test hook).
+  // v3.4: the vertical half is relative to the camera's own height — the
+  // screen is a porthole into a column that moves, so a click 40 px above
+  // centre means 40 px above the VESSEL, not above the surface.
   function setPointFromScreen(cssX, cssY) {
     const camDist = getCamDist();
     const vd = (camDist - beaconZ) / camDist;
-    return setPoint((cssX - state.W / 2) * vd, (state.H / 2 - cssY) * vd, beaconZ);
+    const camY = getCamY ? getCamY() : 0;
+    // v3.7: the horizontal half is relative to the vessel's own X for the same
+    // reason the vertical one is relative to its height — the porthole travels
+    // sideways through 36 km of ocean now.
+    const camX = getCamX ? getCamX() : 0;
+    return setPoint((cssX - state.W / 2) * vd + camX, (state.H / 2 - cssY) * vd + camY, beaconZ);
   }
 
   // Graceful by default: the beacon dissolves and the crowd eases back over
@@ -629,6 +643,7 @@ export function initGather({
   // ---- click wiring (chrome sits above the canvas, so its clicks never
   // land here; creature clicks are filtered via the provided hit-test) ------
   const onClick = (e) => {
+    if (canDrop && !canDrop()) return; // v3.7: a pan is not a summons
     if (hitTest && hitTest(e.clientX, e.clientY)) return; // creature click = selection's job
     setPointFromScreen(e.clientX, e.clientY);
   };

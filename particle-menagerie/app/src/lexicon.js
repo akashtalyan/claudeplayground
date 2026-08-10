@@ -15,18 +15,43 @@
 //             // BLOOM_MORPHS entry) or null — passed as opts.morph to the
 //             // maker; plain "fish"/"kelp"/"flower" stays null so generic
 //             // creatures keep seed-varied bodies
+//
+//   -- v3.4, the vertical water column (src/depthbands.js) --
+//   bandKey,  // the depth band this name resolved to ('jellyfish', 'kelp',
+//             // 'fish'...) — the species entry when there is one, else the
+//             // archetype's
+//   band,     // the frozen band record: { kind, minM, maxM, preferM, hold,
+//             // wanderM, ... } in METRES BELOW THE SURFACE. A summoned
+//             // creature therefore knows where it lives before it is placed.
+//   depthM,   // metres below the surface for instance 0 — a deterministic
+//             // draw from `seed` inside `band`. Batches of >1 pass their
+//             // instance index to pickDepth(band, seed, i) so a school
+//             // spreads through its band instead of stacking.
 // }
 
 import { hashName } from './geometry/rng.js';
+import { bandFor, bandKeyFor, pickDepth, pickTransect } from './depthbands.js';
 import { FISH_MORPHS } from './geometry/fish.js';
+import { EEL_MORPHS, eelMorphFor } from './geometry/eel.js';
+import { OCTO_MORPHS, octoMorphFor } from './geometry/octo.js';
+import { MEDUSA_MORPHS, medusaMorphFor } from './geometry/medusa.js';
+import { STAR_MORPHS, starMorphFor } from './geometry/star.js';
+import { AMORPH_MORPHS, amorphMorphFor } from './geometry/amorph.js';
 import { KELP_MORPHS } from './geometry/kelp.js';
 import { BLOOM_MORPHS } from './geometry/bloom.js';
+import { TETRAPOD_MORPHS, tetrapodMorphFor } from './geometry/tetrapod.js';
 
 // ---- archetype lexicon (~150 entries) ------------------------------------
 export const LEX = {
   medusa: [
     'jellyfish', 'jelly', 'jellies', 'medusa', 'medusae', 'manowar',
     'ghost', 'phantom', 'wraith', 'spirit', 'seaangel', 'comb',
+    // v3.7 the gelatinous, including the ones that make their own light
+    'atolla', 'atollajellyfish', 'alarmjelly', 'crystaljelly', 'aequorea',
+    // v3.8 the folded species tokens (see PHRASES)
+    'moonjelly', 'aurelia', 'lionsmane', 'cyanea', 'boxjelly', 'cubozoan',
+    'irukandji', 'physalia', 'bluebottle', 'clione',
+    'siphonophore', 'praya', 'combjelly', 'ctenophore',
   ],
   fish: [
     'fish', 'shark', 'whale', 'dolphin', 'orca', 'tuna', 'salmon', 'koi',
@@ -38,27 +63,68 @@ export const LEX = {
     // cetaceans (fish archetype, but hand-authored cetacean morphs in
     // FISH_MORPHS: horizontal fluke + up-down undulation)
     'humpback', 'beluga', 'porpoise',
+    // v3.7 reef + coastal (species-F)
+    'parrotfish', 'triggerfish', 'bluetang', 'tang', 'surgeonfish',
+    'butterflyfish', 'damselfish', 'goby', 'blenny',
+    // v3.7 pelagic (species-F)
+    'remora', 'suckerfish', 'sailfish', 'mahimahi', 'mahi', 'dorado',
+    'dolphinfish', 'anchovy', 'opah', 'moonfish', 'wahoo', 'cobia',
+    // v3.7 the abundance champions + the deep-sea lamps (species-F/G)
+    'lanternfish', 'myctophid', 'bristlemouth', 'cyclothone',
+    'viperfish', 'hatchetfish', 'flashlightfish', 'cookiecutter',
+    'cookiecuttershark', 'barreleye', 'macropinna', 'tripodfish',
+    'lanternshark', 'etmopterus',
   ],
   eel: [
     'eel', 'moray', 'seasnake', 'serpent', 'snake', 'dragon', 'seadragon',
     'oarfish', 'lamprey', 'ribbonfish', 'pipefish', 'seahorse', 'worm',
     'leviathan', 'wyrm', 'noodle',
+    // v3.7 long soft bodies: the dragonfish is a ribbon with a red lamp, the
+    // gulper is mostly jaw and tail, a sea cucumber is a tube that crawls, an
+    // arrow worm is a transparent dart
+    'dragonfish', 'blackdragonfish', 'gulpereel', 'gulper', 'pelicaneel',
+    'seacucumber', 'cucumber', 'holothurian', 'arrowworm', 'chaetognath',
   ],
   ray: [
-    'ray', 'manta', 'stingray', 'skate', 'turtle', 'flounder', 'halibut',
+    'ray', 'manta', 'stingray', 'skate', 'flounder', 'halibut',
     'sole', 'mobula',
+  ],
+  // v3.7 — the marine tetrapods. 'turtle' MOVED HERE from `ray`: a turtle is
+  // not a flat sheet with a whip tail, it is a barrel with four paddling
+  // limbs, and geometry/tetrapod.js is the archetype that says so.
+  tetrapod: [
+    'turtle', 'seaturtle', 'greenturtle', 'loggerhead', 'hawksbill',
+    'hawksbillturtle', 'leatherback', 'leatherbackturtle', 'terrapin',
+    'seal', 'harbourseal', 'harborseal', 'pinniped', 'sealion', 'walrus',
+    'penguin', 'emperorpenguin', 'littlepenguin', 'fairypenguin',
+    'otter', 'seaotter', 'dugong', 'manatee', 'seacow',
+    'marineiguana', 'iguana', 'polarbear',
   ],
   octo: [
     'octopus', 'octo', 'kraken', 'squid', 'cuttlefish', 'nautilus',
     'argonaut', 'vampyroteuthis',
+    // v3.7 (species-G)
+    'vampiresquid', 'fireflysquid', 'watasenia', 'glasssquid', 'cranchiid',
   ],
   star: [
     'starfish', 'star', 'seastar', 'urchin', 'crab', 'brittlestar',
-    'sanddollar', 'basketstar', 'sunstar',
+    'sanddollar', 'basketstar', 'sunstar', 'ophiuroid', 'gorgonocephalus',
+    'echinoid', 'solaster', 'limulus', 'crayfish', 'langoustine',
+    // v3.7 armoured, many-legged floor walkers (species-E)
+    'lobster', 'hermitcrab', 'horseshoecrab',
   ],
   amorph: [
     'plankton', 'krill', 'blob', 'amoeba', 'slime', 'ooze', 'spore', 'mist',
     'cloud', 'algae', 'goo', 'shrimp', 'salp', 'nebula',
+    // v3.7 soft, shelled and formless benthos (species-E) — placement pins
+    // them to the seabed; the archetype only says what shape they are
+    'prawn', 'nudibranch', 'seaslug', 'clam', 'quahog', 'oyster', 'mussel',
+    'scallop', 'barnacle', 'cockle', 'abalone', 'limpet', 'chiton',
+    'seasquirt', 'tunicate',
+    // v3.7 the small drifting multitudes + the glowing motes (species-F/G)
+    'copepod', 'amphipod', 'foraminifera', 'foram',
+    'seasparkle', 'noctiluca', 'dinoflagellate', 'dinoflagellatebloom',
+    'redtide', 'pyrosome', 'seapickle',
   ],
   bloom: [
     'flower', 'rose', 'tulip', 'lotus', 'daisy', 'lily', 'orchid',
@@ -72,12 +138,62 @@ export const LEX = {
     // coral moved bloom→kelp (Phase F): the stubby strand-cluster morph
     // reads as coral; 'fan'/'seafan' cover "sea fan" (planar morph)
     'coral', 'seafan', 'fan',
+    // v3.7 the SESSILE — not plants, but built the same way: a holdfast and a
+    // body that stands up in the current. A tube worm IS a tube on a stalk.
+    'sponge', 'barrelsponge', 'seapen', 'tubeworm', 'gianttubeworm', 'riftia',
   ],
 };
 
 export const ARCH_NAMES = Object.keys(LEX);
-// unknown names become free-swimming/drifting sea creatures, never flora
+// unknown names become free-swimming/drifting sea creatures, never flora.
+// NOT extended in v3.7: this list is the hash -> archetype map for unknown
+// names, so appending to it would re-roll every made-up creature on every
+// saved board. `tetrapod` is reachable by name only, which is right — an
+// invented word should not become a walrus.
 export const SWIMMERS = ['medusa', 'fish', 'eel', 'ray', 'octo', 'star', 'amorph'];
+
+// v3.7 — multi-word species names, collapsed to the single lexicon word before
+// parsing. "sea turtle" and "seaturtle" are the same animal and the user should
+// not have to know which spelling the table uses. Longest phrase first, so
+// "giant tube worm" is not eaten by "tube worm".
+const PHRASES = [
+  ['giant tube worm', 'tubeworm'], ['tube worm', 'tubeworm'],
+  ['emperor penguin', 'emperorpenguin'], ['little penguin', 'littlepenguin'],
+  ['fairy penguin', 'littlepenguin'],
+  ['leatherback turtle', 'leatherback'], ['hawksbill turtle', 'hawksbill'],
+  ['green turtle', 'greenturtle'], ['sea turtle', 'seaturtle'],
+  ['sea otter', 'seaotter'], ['sea lion', 'sealion'], ['sea cow', 'seacow'],
+  ['harbour seal', 'harbourseal'], ['harbor seal', 'harborseal'],
+  ['marine iguana', 'marineiguana'], ['polar bear', 'polarbear'],
+  ['hermit crab', 'hermitcrab'], ['horseshoe crab', 'horseshoecrab'],
+  ['sea cucumber', 'seacucumber'], ['sea pen', 'seapen'],
+  ['sea squirt', 'seasquirt'], ['sea slug', 'seaslug'],
+  ['barrel sponge', 'barrelsponge'],
+  ['blue tang', 'bluetang'], ['mahi mahi', 'mahimahi'], ['mahi-mahi', 'mahimahi'],
+  ['arrow worm', 'arrowworm'],
+  ['vampire squid', 'vampiresquid'], ['firefly squid', 'fireflysquid'],
+  ['glass squid', 'glasssquid'], ['black dragonfish', 'blackdragonfish'],
+  ['atolla jellyfish', 'atollajellyfish'], ['flashlight fish', 'flashlightfish'],
+  ['cookiecutter shark', 'cookiecuttershark'], ['crystal jelly', 'crystaljelly'],
+  ['sea sparkle', 'seasparkle'], ['dinoflagellate bloom', 'dinoflagellatebloom'],
+  ['red tide', 'redtide'], ['comb jelly', 'combjelly'],
+  ['gulper eel', 'gulpereel'], ['pelican eel', 'pelicaneel'],
+  ['tripod fish', 'tripodfish'], ['sea pickle', 'seapickle'],
+  // v3.8 — the echinoderms/arthropods and the gelatinous. Without these the
+  // words split and the FIRST token that matched anything won: "sun star" and
+  // "brittle star" both resolved on the bare token 'star' and came out as
+  // plain sea stars, and "sand dollar" matched nothing at all, so it fell
+  // through to the archetype fallback and was rendered as a RAY.
+  ['sea star', 'seastar'], ['sun star', 'sunstar'],
+  ['brittle star', 'brittlestar'], ['basket star', 'basketstar'],
+  ['sand dollar', 'sanddollar'], ['sea urchin', 'urchin'],
+  ['moon jelly', 'moonjelly'], ['moon jellyfish', 'moonjelly'],
+  ["lion's mane", 'lionsmane'], ['lions mane', 'lionsmane'],
+  ['box jelly', 'boxjelly'], ['sea wasp', 'boxjelly'],
+  ['portuguese man o war', 'manowar'], ['man o war', 'manowar'],
+  ['man of war', 'manowar'], ['sea gooseberry', 'combjelly'],
+  ['sea angel', 'seaangel'],
+];
 
 // ---- modifiers -----------------------------------------------------------
 export const MODS = {
@@ -141,7 +257,16 @@ export const NUMS = {
 
 // ---- parsing -------------------------------------------------------------
 export function resolveName(raw) {
-  const name = String(raw).toLowerCase().trim().replace(/\s+/g, ' ');
+  let name = String(raw).toLowerCase().trim().replace(/\s+/g, ' ');
+  // v3.7: fold "sea turtle" -> "seaturtle" BEFORE anything else looks at the
+  // words. The collapsed word is what is hashed, so "sea turtle" and
+  // "seaturtle" are one creature with one seed, not two.
+  for (let i = 0; i < PHRASES.length; i++) {
+    if (name.indexOf(PHRASES[i][0]) >= 0) {
+      name = name.split(PHRASES[i][0]).join(PHRASES[i][1]);
+      break;
+    }
+  }
   const words = name.split(' ').filter(Boolean);
   let scale = 1;
   let tempo = 1;
@@ -182,7 +307,19 @@ export function resolveName(raw) {
     const sp =
       FISH_MORPHS[w] || FISH_MORPHS[ws] ||
       KELP_MORPHS[w] || KELP_MORPHS[ws] ||
-      BLOOM_MORPHS[w] || BLOOM_MORPHS[ws];
+      BLOOM_MORPHS[w] || BLOOM_MORPHS[ws] ||
+      // v3.8: the archetypes that gained a preset table. Same contract as
+      // FISH_MORPHS — a preset overrides VALUES only, never an RNG draw.
+      EEL_MORPHS[w] || EEL_MORPHS[ws] || eelMorphFor(w) || eelMorphFor(ws) ||
+      OCTO_MORPHS[w] || OCTO_MORPHS[ws] || octoMorphFor(w) || octoMorphFor(ws) ||
+      MEDUSA_MORPHS[w] || MEDUSA_MORPHS[ws] || medusaMorphFor(w) || medusaMorphFor(ws) ||
+      STAR_MORPHS[w] || STAR_MORPHS[ws] || starMorphFor(w) || starMorphFor(ws) ||
+      AMORPH_MORPHS[w] || AMORPH_MORPHS[ws] || amorphMorphFor(w) || amorphMorphFor(ws) ||
+      // v3.7: tetrapodMorphFor also resolves the aliases ("hawksbill" ->
+      // the turtle morph, "pinniped" -> seal), which is why it is called
+      // rather than TETRAPOD_MORPHS being indexed directly.
+      TETRAPOD_MORPHS[w] || TETRAPOD_MORPHS[ws] ||
+      tetrapodMorphFor(w) || tetrapodMorphFor(ws);
     if (sp && !morph) {
       morph = sp;
       if (sp.scale) scale *= sp.scale; // shark larger, minnow/seagrass smaller...
@@ -193,9 +330,29 @@ export function resolveName(raw) {
   const clean = kept.join(' ') || name;
   const seed = hashName(clean);
   if (!arch) arch = SWIMMERS[seed % SWIMMERS.length];
+  // v3.4: the creature's home in the water column. The species band wins over
+  // the archetype's when the name names a species ("red jellyfish" -> the
+  // jellyfish band, not the generic medusa band); unknown names fall through
+  // to the archetype they were assigned above, so everything has a home.
+  // depthM is drawn from `seed` in depthbands' own salted stream — the
+  // geometry RNG and its frozen draw order (geometry-spec §8) are untouched,
+  // so the same URL hash still yields the same board, now including depths.
+  const bandKey = bandKeyFor(clean) || arch;
+  const band = bandFor(bandKey);
+  // v3.7 — the second axis, resolved the same way and from the same salted
+  // stream. A floor dweller's transect is drawn FIRST and its depth follows
+  // from the seabed there (a mussel is at 2 m because it is 300 m offshore);
+  // a swimmer's depth is drawn first, exactly as in v3.6 and from the same
+  // RNG round, so every v3.6 depth is reproduced unchanged.
+  const onFloor = band.kind === 'rooted' || band.kind === 'benthic';
+  const swimDepthM = pickDepth(band, seed, 0);
+  const transectM = pickTransect(band, seed, 0, onFloor ? null : swimDepthM);
   return {
     name: clean, arch, seed, scale, tempo, speed, ghost,
     hue: hueSet ? hue : null, count, morph,
+    bandKey, band,
+    depthM: onFloor ? pickDepth(band, seed, 0, transectM) : swimDepthM,
+    transectM,
   };
 }
 

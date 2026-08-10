@@ -20,8 +20,20 @@ export function makeRay(seed, opts = {}) {
   // narrows) — the wing reads as a finer dotted membrane, and the quantized
   // v-lines stay legible as ribs (spec §7). Draw ORDER unchanged (spec §8);
   // only the count-sized blocks (sizeJit / twPhase / perm) lengthen.
-  const nU = opts.spanDots ?? 58; // spanwise stations (u lines)
-  const nV = opts.chordDots ?? 42; // chordwise rows (v lines)
+  //
+  // v3.7 fix round 2: the uplift bought resolution the sprite could not spend.
+  // At the archetype's tuned dotPx the chordwise pitch came out at 2.93 world
+  // px against a ~3.0 px dot — a ratio under 1, so the membrane rendered as a
+  // continuous saturated mass with a halo and no dot structure at all (the
+  // blowout metric never caught it: a solid white body at maxChannel 249 is
+  // exactly as dead as one at 255). The ray is the one SHEET archetype: unlike
+  // the tube archetypes it has no far side to hide half its dots, and it is
+  // banked toward the lens, which foreshortens one grid direction on top of
+  // everything else. 44 × 30 puts the chord pitch at 4.14 world px against the
+  // retuned 2.57 px dot (ratio 1.6, above the fish's 1.2), which is what the
+  // dotted-rib identity in geometry-spec §7 actually costs on a flat sheet.
+  const nU = opts.spanDots ?? 44; // spanwise stations (u lines)
+  const nV = opts.chordDots ?? 30; // chordwise rows (v lines)
   const count = nU * nV;
   const ringCount = nV; // "rings" = quantized chordwise v-lines, front→back
   const span = opts.span ?? 5.2;

@@ -550,3 +550,1021 @@ body:not(.booted) #plate,
 body:not(.booted) #labels {
   visibility: hidden;
 }
+
+/* ==========================================================================
+   v3.4 — DEPTH GAUGE (markup built by src/ui/depthgauge.js; this section owns
+   every gauge rule, including its own boot-gate and State C ambient rules, so
+   nothing above needed editing).
+
+   The world is now a 1200 m vertical water column and this is the vessel's
+   own depth instrument: a brass hairline scale down the LEFT edge (the
+   weather rotary keeps bottom-right, the summon row keeps bottom-centre).
+
+   RESTRAINT — this is the third resting instrument, so it is deliberately the
+   quietest one: no plate, no glass, no backdrop-filter, no fill, no border
+   box. It is a 1px hairline, 1px graduations, 8px numerals at 30% warm white,
+   and a single 14x2px amber needle — the same needle the gauge plate uses,
+   laid on its side. Only the needle and its two-line readout carry amber; at
+   rest the whole instrument is hairlines and small type, so the water still
+   dominates. Hover/focus (via .awake, set by depthgauge.js because the
+   container is pointer-transparent) lifts the scale one step, 180ms.
+
+   LEGIBILITY over both bright surface water and the black abyss comes from a
+   dark CASING on every mark (--dg-casing on the hairlines and graduations,
+   --dg-halo behind the type) rather than from a panel: on black the casing is
+   invisible, on bright glitter it becomes the etched shadow that keeps a 1px
+   brass line and 8px numerals readable. The instrument stays a drawing ON the
+   water instead of a slab over it.
+
+   HIT AREA: #depthgauge is pointer-events:none — only the 24px .dg-column
+   strip takes the pointer, so the water stays clickable everywhere else.
+   ========================================================================== */
+#depthgauge {
+  /* The instrument's own two tokens (scoped here, not to :root — nothing else
+     in the chrome needs them). They are the whole legibility story: every
+     amber mark carries a soft dark casing, so the gauge reads over the bright
+     surface glitter AND over the black abyss without a panel behind it. */
+  --dg-halo: 0 0 2px rgba(2, 4, 7, 0.95), 0 0 6px rgba(2, 4, 7, 0.9),
+    0 1px 1px rgba(2, 4, 7, 0.9);
+  --dg-casing: 0 0 3px 1px rgba(2, 4, 7, 0.6);
+
+  position: fixed;
+  left: 22px;
+  top: 12vh;
+  bottom: 15vh;
+  width: 148px;
+  z-index: 5;
+  pointer-events: none;
+  /* State C return: rises after the summon row and the rotary (the vessel's
+     instruments come back once the water is lit again) */
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 200ms,
+    opacity 420ms ease 200ms;
+}
+
+/* ---- numerals: tiny, right-aligned, left of the hairline ---------------- */
+.dg-scale {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 30px;
+}
+.dg-num {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  font: 400 8px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  color: var(--warm-30);
+  text-shadow: var(--dg-halo);
+  white-space: nowrap;
+  transition: color var(--hover-ms) ease;
+}
+
+/* ---- the column: 24px hit strip, 1px brass hairline down its middle ----- */
+.dg-column {
+  position: absolute;
+  left: 36px;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: auto;
+  cursor: ns-resize;
+  outline: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* full span of the column (0 m -> seabed), the dimmest hairline in the app */
+.dg-column::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--brass-14);
+  box-shadow: var(--dg-casing); /* reads over bright surface glitter */
+  transition: background var(--hover-ms) ease;
+}
+/* the segment the vessel can actually reach (column.range() min..max) —
+   the travel stops explaining themselves, with no copy */
+.dg-reach {
+  position: absolute;
+  left: 11px;
+  width: 1px;
+  background: var(--brass-28);
+  box-shadow: var(--dg-casing);
+  transition: background var(--hover-ms) ease;
+}
+
+/* ---- graduations: minor every 50 m, major (numbered) every 200 m -------- */
+.dg-tick {
+  position: absolute;
+  left: 6px;
+  width: 5px; /* flush to the hairline, growing toward the numerals */
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--brass-20);
+  box-shadow: var(--dg-casing);
+  transition: background var(--hover-ms) ease;
+}
+.dg-tick.major {
+  left: 2px;
+  width: 9px;
+  background: var(--brass-28);
+}
+
+/* ---- the set-point bug: where the vessel is HEADED --------------------- */
+.dg-bug {
+  position: absolute;
+  left: 7px;
+  width: 8px;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--brass-50);
+  opacity: 0;
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- the needle: the plate's 2x10px amber gauge needle, on its side ----- */
+.dg-needle {
+  position: absolute;
+  left: 4px;
+  width: 14px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--amber);
+  box-shadow:
+    0 0 7px rgba(255, 195, 122, 0.8),
+    0 0 3px 1px rgba(2, 4, 7, 0.62);
+  pointer-events: none;
+}
+
+/* ---- the readout rides the needle -------------------------------------- */
+.dg-read {
+  position: absolute;
+  left: 66px;
+  top: 0;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.dg-value {
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  text-shadow: var(--dg-halo);
+}
+/* the zone name is what makes this a PLACE and not a slider */
+.dg-zone {
+  font: 500 10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--amber-bright);
+  opacity: 0.7;
+  text-shadow: var(--dg-halo);
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- awake (hover / focus / drag): one step up, 180ms ------------------ */
+#depthgauge.awake .dg-num {
+  color: var(--warm-50);
+}
+#depthgauge.awake .dg-tick {
+  background: var(--brass-28);
+}
+#depthgauge.awake .dg-tick.major {
+  background: var(--brass-50);
+}
+#depthgauge.awake .dg-column::before {
+  background: var(--brass-20);
+}
+#depthgauge.awake .dg-reach {
+  background: var(--brass-50);
+}
+#depthgauge.awake .dg-zone {
+  opacity: 0.85;
+}
+
+/* ---- State C ambient: sinks with the rest of the chrome ---------------- */
+body.ambient #depthgauge {
+  transform: translateY(130px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 1200ms cubic-bezier(0.55, 0, 0.85, 0.45) 80ms,
+    opacity 1000ms ease 220ms;
+}
+/* the strip sets pointer-events:auto, so it must be switched off explicitly */
+body.ambient #depthgauge .dg-column {
+  pointer-events: none;
+}
+
+/* ---- boot gate (same rule as the rest of the chrome) ------------------- */
+body:not(.booted) #depthgauge {
+  visibility: hidden;
+}
+
+/* ==========================================================================
+   v3.5 — DEPTH GAUGE: THE PHYSICS READOUT
+   (markup built by src/ui/depthgauge.js; this section owns every rule for the
+   new lines and overrides nothing above it except .dg-read's box, which now
+   holds a four-line stack instead of two.)
+
+   WHAT CHANGED AND WHY IT IS STILL QUIET. v3.4's readout was two lines beside
+   the needle. v3.5 makes it the dive console's instrument stack — metres,
+   zone, pressure, temperature, light, and a rotating zone fact — which is four
+   times the information and must not become four times the presence. The
+   restraint is carried entirely by hierarchy, not by hiding:
+
+     - ONE amber value. The metre reading keeps full --amber; every figure
+       below it is amber at 55-62% or warm white at 30-45%, and each line down
+       the stack is smaller than the one above it (10 / 10 / 7.5 / 8.5 / 8 / 9).
+       Read from across the room it is still "a number and a word".
+     - NO panel, NO glass, NO backdrop-filter, NO border, NO fill — same as
+       v3.4. Legibility over both the bright surface glitter and the black
+       abyss still comes from --dg-halo casing on the type, so the instrument
+       stays a drawing ON the water.
+     - The FACT and the PROVENANCE line are transient: the fact fades in when
+       you arrive in a new zone and fades out again, and both stay up only
+       while the instrument is awake (hover / focus / drag). At rest, in a zone
+       you have been sitting in, the gauge shows the instrument and nothing
+       else.
+     - The stack is pointer-transparent and sinks with the rest of the chrome
+       in State C — the v3.4 #depthgauge ambient rule already covers it, since
+       every new element is a descendant of .dg-read.
+
+   LAYOUT CONTRACT — the needle must point at the NUMBER, and the number must
+   never move for any reason other than depth. Two rules give that:
+     1. .dg-read is top-anchored on the needle with a fixed −7px lift (half the
+        metre line's box), NOT centred on the whole block. The stack therefore
+        grows downward only, and adding or removing a line below can never
+        shift the depth reading.
+     2. .dg-read's own lines are NOWRAP and always present — a missing figure
+        shortens a line, it never deletes one — so the block above .dg-note has
+        a constant height. Everything that wraps or disappears lives in
+        .dg-note, absolutely positioned at top:100%, out of flow entirely.
+   ========================================================================== */
+
+.dg-read {
+  /* tighter rhythm than v3.4's 2px: this is a stack now, not a pair */
+  gap: 1px;
+  white-space: nowrap;
+  /* v3.4 centred the whole two-line readout on the needle. With a stack that
+     would leave the needle pointing at the middle of the block instead of at
+     the number, so the METRE LINE is what rides the needle now (half its
+     ~13px line box) and everything else hangs beneath it. A side effect worth
+     having: the stack grows downward only, so a wrapping fact can never shift
+     the depth reading. */
+  transform: translateY(-7px);
+}
+
+/* ---- zone, proper name --------------------------------------------------
+   Both names are sourced (oceandata ZONES): the friendly nickname above, the
+   proper name with the zone's REAL extent below — which is also how the
+   instrument admits, without a word of copy, that this 1200 m column is a
+   slice of a zone that runs to 4000 m. */
+.dg-zone-sci {
+  font: 400 7.5px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.1em;
+  color: var(--warm-30);
+  text-shadow: var(--dg-halo);
+  margin-top: 1px;
+}
+
+/* ---- pressure · temperature --------------------------------------------
+   Dim phosphor: these are readouts, so they are amber, but they must never
+   compete with the metre value above them. When the data nulls the
+   temperature (200-1000 m — no source gives a global mean there) this line
+   simply reads "44 atm" and nothing is substituted for the missing figure. */
+.dg-phys {
+  font: 400 8.5px var(--font-mono);
+  letter-spacing: 0.08em;
+  color: var(--amber);
+  opacity: 0.58;
+  text-shadow: var(--dg-halo);
+  margin-top: 3px;
+  transition: opacity var(--hover-ms) ease;
+}
+#depthgauge.awake .dg-phys {
+  opacity: 0.78;
+}
+/* the caveat that says which depth the sourced figure belongs to — warm white
+   inside an already-dimmed line, so it can never be misread as part of the
+   value it qualifies */
+.dg-phys-qual {
+  color: var(--warm-50);
+  letter-spacing: 0.06em;
+}
+.dg-phys-qual:not(:empty)::before {
+  content: '  ';
+  white-space: pre;
+}
+
+/* ---- the note block: hangs below the stack, never pushes it ------------- */
+.dg-note {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 172px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  white-space: normal;
+  pointer-events: none;
+}
+
+/* light remaining — a sourced percentage WITH the depth it was measured at,
+   or the source's qualitative statement where no percentage exists. Above
+   10 m the tables have not started and the line is removed outright (.off),
+   rather than showing a zero or an "unknown". */
+.dg-light {
+  font: 400 8px var(--font-mono);
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  color: var(--warm-40);
+  text-shadow: var(--dg-halo);
+}
+.dg-light.off {
+  display: none;
+}
+
+/* the zone fact — engraved caption, not a tooltip. Transient by default:
+   opacity 0 until .lit, which depthgauge.js sets on zone arrival and while
+   the instrument is awake. */
+.dg-fact {
+  /* Spectral 400 italic — the same face the weather rotary uses for its preset
+     word. Prose, so NOT small-caps: small-caps is the design's label voice and
+     would make a full sentence unreadable at 9px. */
+  font: italic 400 9px var(--font-serif);
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+  color: var(--amber-bright);
+  text-shadow: var(--dg-halo);
+  opacity: 0;
+  transform: translateY(3px);
+  transition:
+    opacity 600ms ease,
+    transform 600ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.dg-fact.lit {
+  opacity: 0.42;
+  transform: translateY(0);
+}
+#depthgauge.awake .dg-fact.lit {
+  opacity: 0.6;
+}
+
+/* provenance — the readout looks authoritative, so it says what it is. Only
+   while the instrument is awake: it answers a question you are only asking
+   once you have leaned in. */
+.dg-prov {
+  font: 400 7px var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--warm-30);
+  text-shadow: var(--dg-halo);
+  opacity: 0;
+  transition: opacity var(--hover-ms) ease;
+}
+#depthgauge.awake .dg-prov {
+  opacity: 0.7;
+}
+
+/* ---- v3.5 specimen card ---------------------------------------------------
+   What the console knows about the REAL animal, under the controls that shape
+   the imaginary one. Deliberately secondary to the intent rows: smaller, more
+   transparent, no glass of its own. Rows are omitted upstream when the data
+   could not confirm a field, so nothing here needs an "unknown" state. */
+.plate-spec-divider { margin: 12px 0 11px; }
+
+.plate-spec-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 0;
+}
+.plate-spec-label {
+  font: 500 9.5px 'Spectral', Georgia, serif;
+  font-variant: small-caps;
+  letter-spacing: .14em;
+  color: rgba(255, 235, 214, .38);
+  flex: none;
+}
+.plate-spec-value {
+  font: 9.5px 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: .06em;
+  color: rgba(255, 214, 168, .72);
+  text-align: right;
+}
+/* Binomials are italicised — typographic correctness, and it visually marks
+   the real-world fact off from the app's own invented vocabulary. */
+.plate-spec-sci {
+  font: italic 500 10.5px 'Spectral', Georgia, serif;
+  letter-spacing: .04em;
+  color: #ffd9a8;
+}
+.plate-spec-note {
+  font: 9px 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: .04em;
+  line-height: 1.45;
+  color: rgba(255, 235, 214, .32);
+  margin: -2px 0 7px;
+}
+/* Provenance: quiet, but present. These figures were curated from public
+   sources, not pulled from an authoritative database, and the plate should
+   not pretend otherwise. */
+.plate-spec-prov {
+  font: 8.5px 'IBM Plex Mono', ui-monospace, monospace;
+  letter-spacing: .1em;
+  color: rgba(255, 235, 214, .2);
+  margin-top: 9px;
+  text-align: right;
+}
+
+/* ==========================================================================
+   v3.6 — SPECIMEN INSPECTOR (markup built by src/ui/inspector.js)
+
+   NOTE, DELIBERATE: design/bathyscaphe/README.md says "No modals, no
+   navigation, no pages." The user explicitly overrode that rule for THIS
+   feature and this feature only ("when I click on a species make it open in a
+   modal ... specimen on the left and details on the right"). Everything else
+   in the contract is honoured to the letter here — the glass panel
+   rgba(10,8,4,.42) + 8px backdrop blur, the brass hairlines, amber phosphor
+   #ffc37a / #ffd9a8, Spectral 500 small-caps + IBM Plex Mono, the 400ms
+   rise-through-water entry (reversing at 300ms), and the 40% -> 85% hover
+   ramp. The intent rows literally reuse the gauge plate's classes, so the
+   detent strip and the amber needle are the same component, not a lookalike.
+   ========================================================================== */
+#inspector {
+  position: fixed;
+  inset: 0;
+  z-index: 20; /* above every other chrome layer (plate 6, summon/rotary 5) */
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+}
+#inspector.open {
+  display: flex;
+}
+#inspector.sinking {
+  pointer-events: none;
+}
+
+/* The water between you and the specimen: darkened and softly out of focus,
+   so the board is still THERE (it never pauses) but stops competing. */
+.insp-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 4, 7, 0.62);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+/* The instrument itself: one glass panel, the plate's material at scale. */
+.insp-modal {
+  position: relative;
+  display: flex;
+  /* v3.6.1: +200px wide (1080 -> 1280) and taller. The stage gains most of
+     it, but the detail pane widens too so the intent notch strips are long
+     enough to scrub smoothly rather than jumping a notch per few px. */
+  width: min(1280px, 94vw);
+  height: min(760px, 88vh);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border);
+  border-radius: 4px;
+  overflow: hidden;
+  color: var(--warm-60);
+  outline: none;
+  will-change: transform, filter, opacity;
+}
+
+/* ---- left: the specimen stage ------------------------------------------ */
+.insp-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  border-right: 1px solid var(--brass-14);
+  /* the ground is painted in the composite shader (inspector.js QUAD_FRAG);
+     this is only what shows for the frame before the first render */
+  background: #04060a;
+}
+.insp-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.insp-canvas.dragging {
+  cursor: grabbing;
+}
+.insp-canvas:focus-visible {
+  outline: 1px solid var(--brass-28);
+  outline-offset: -1px;
+}
+
+/* Affordances float over the water at the plate's quietest ink; they are
+   instructions, not instruments. */
+.insp-hint {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  font: 400 9px var(--font-mono);
+  letter-spacing: 0.18em;
+  color: var(--warm-30);
+  pointer-events: none;
+}
+.insp-reset {
+  position: absolute;
+  right: 16px;
+  bottom: 13px;
+  font: 400 9.5px var(--font-mono);
+  letter-spacing: 0.1em;
+}
+
+/* ---- right: the record -------------------------------------------------- */
+.insp-detail {
+  flex: 0 0 384px;
+  box-sizing: border-box;
+  padding: 24px 28px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.insp-detail::-webkit-scrollbar {
+  width: 3px;
+}
+.insp-detail::-webkit-scrollbar-thumb {
+  background: var(--brass-20);
+}
+
+.insp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--brass-14);
+}
+.insp-name {
+  font: 500 16px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.16em;
+  color: var(--amber-bright);
+}
+.insp-tag {
+  font: 400 9px var(--font-mono);
+  color: rgba(255, 214, 168, 0.35);
+  flex: none;
+}
+
+/* The specimen record: the PRIMARY content of this pane, so it is given the
+   room the plate could not spare it. Rows are omitted upstream when the
+   research could not confirm a field (oceandata rule 1), which is why nothing
+   here has an "unknown" state to style. */
+.insp-spec-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 9px 0;
+}
+.insp-spec-label {
+  font: 500 10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: rgba(255, 235, 214, 0.42);
+  flex: none;
+}
+.insp-spec-value {
+  font: 400 10.5px var(--font-mono);
+  letter-spacing: 0.06em;
+  color: rgba(255, 214, 168, 0.8);
+  text-align: right;
+}
+/* Binomials in Spectral ITALIC: typographic correctness, and it marks the
+   real-world fact off from the app's own invented vocabulary. */
+.insp-spec-sci {
+  font: italic 500 13px var(--font-serif);
+  letter-spacing: 0.04em;
+  color: var(--amber-bright);
+}
+.insp-spec-note {
+  font: 400 9.5px var(--font-mono);
+  letter-spacing: 0.04em;
+  line-height: 1.55;
+  color: rgba(255, 235, 214, 0.34);
+  margin: -3px 0 10px;
+}
+/* A specimen with no researched record. One quiet line, no apology, no
+   placeholder figures, and no provenance for data that does not exist. */
+.insp-empty {
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  line-height: 1.7;
+  color: var(--warm-30);
+  margin: 4px 0 2px;
+}
+/* Provenance travels with the data (oceandata rule 5 / rule 6). */
+.insp-prov {
+  font: 400 9px var(--font-mono);
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+  color: rgba(255, 235, 214, 0.22);
+  margin-top: 14px;
+}
+
+/* ---- the controls, kept secondary to the record ------------------------- */
+.insp-divider {
+  margin: 18px 0 12px;
+}
+.insp-caption {
+  font: 500 9.5px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.18em;
+  color: rgba(255, 235, 214, 0.3);
+  margin-bottom: 4px;
+}
+/* The plate's rows at the same rhythm, in a narrower column: 336 - 52 padding
+   = 284 content, divided 44 label + 10 + strip + 10 + 92 word. */
+#inspector .plate-value {
+  width: 92px;
+}
+#inspector .plate-notches {
+  min-width: 34px;
+}
+.insp-actions {
+  margin-top: 16px;
+}
+
+/* Close: a word, not an icon (the design has no icons at all). */
+.insp-close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  font: 400 9.5px var(--font-mono);
+  letter-spacing: 0.16em;
+  z-index: 2;
+}
+
+/* ---- responsive: stacked on narrow viewports --------------------------- */
+@media (max-width: 880px), (max-height: 560px) {
+  #inspector {
+    padding: 12px;
+  }
+  .insp-modal {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
+  .insp-stage {
+    flex: 1 1 46%;
+    min-height: 200px;
+    border-right: 0;
+    border-bottom: 1px solid var(--brass-14);
+  }
+  .insp-detail {
+    flex: 1 1 54%;
+    padding: 18px 20px;
+  }
+  .insp-name {
+    font-size: 14px;
+  }
+}
+
+/* While the dialog owns the screen, nothing behind it is clickable. The
+   inspector puts `inspecting` on <body> for exactly this (and as a hook for
+   anything else the integrator wants to quiet down); the chrome is left
+   VISIBLE — the board never pauses, and watching your water go on without you
+   through the blurred backdrop is the point. */
+body.inspecting #summon,
+body.inspecting #plate,
+body.inspecting #rotary,
+body.inspecting #labels,
+body.inspecting #depthgauge {
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   v3.7 — SHORE GAUGE (markup built by src/ui/shoregauge.js; this section owns
+   every shore-gauge rule, including its own boot gate, its State C ambient
+   rule and its body.inspecting rule, so nothing above needed editing).
+
+   The world gained a second navigation axis — a cross-shelf transect from the
+   shoreline out to the abyssal plain — so it gets the depth gauge's instrument
+   laid on its side along the BOTTOM edge: brass hairline scale, 1px
+   graduations, 8px numerals, ONE amber needle, a mono distance readout and the
+   zone name in Spectral small-caps. Same restraint, same casing-not-a-panel
+   legibility trick (--sg-casing / --sg-halo), same awake / ambient / boot
+   behaviour.
+
+   THE FOUR-INSTRUMENT GEOMETRY (why these exact insets — see the header of
+   shoregauge.js for the full argument, and note that all three were MEASURED
+   in the running app, not estimated):
+     left: 268px   clears the depth gauge's whole footprint. Not its 148px box
+                   (which ends at 170) but its READOUT STACK: .dg-read starts at
+                   x = 88 and .dg-note is 172px wide, so the instrument's ink
+                   reaches x = 260 — and at abyssal depths that stack hangs down
+                   to y = 553, i.e. THROUGH this strip. It is not transient:
+                   below 1000 m the sourced light line reads "no sunlight below
+                   1000 m" with no hover gate, so it is on screen for as long as
+                   the vessel is deep. 268 clears it by 8px.
+     right: 168px  clears the weather rotary's hovered dial AND its ‹ ›
+                   affordances (ink reaches 130px in) by 38px
+     bottom: 10px + 44px tall  puts the top edge at y = 54px, two pixels under
+                   the summon row's underline at 56px
+   Everything the instrument draws lives inside that 44px strip. The rows, from
+   the water down to the screen edge:
+     0..15  the seabed SECTION (0 m at the top edge, 1200 m at the bottom)
+     12..34 the RULE — also the 22px hit strip: hairline at 18, ticks 19..24
+     25..34 the NUMERALS (km offshore)
+     34..44 the READOUT, riding the needle in the one row nothing else uses
+
+   HIT AREA: #shoregauge is pointer-events:none — only the 22px .sg-rule strip
+   takes the pointer, so the water stays clickable everywhere else, including
+   through the section drawn above it.
+   ========================================================================== */
+#shoregauge {
+  /* the same two tokens the depth gauge scopes to itself: every mark carries a
+     soft dark casing, so the instrument reads over the bright surface glitter
+     AND over the black abyss without a panel behind it */
+  --sg-halo: 0 0 2px rgba(2, 4, 7, 0.95), 0 0 6px rgba(2, 4, 7, 0.9),
+    0 1px 1px rgba(2, 4, 7, 0.9);
+  --sg-casing: 0 0 3px 1px rgba(2, 4, 7, 0.6);
+
+  position: fixed;
+  left: 268px;
+  right: 168px;
+  bottom: 10px;
+  height: 44px;
+  /* Past this the rule stops growing (left wins when left/right/width are all
+     specified), because a 3000px scale flattens the section into a straight
+     line and the numerals drift apart into decoration. */
+  max-width: 1180px;
+  z-index: 5;
+  pointer-events: none;
+  /* State C return: rises with the depth gauge, after the summon row and the
+     rotary — the vessel's instruments come back once the water is lit again */
+  transition:
+    transform 520ms cubic-bezier(0.2, 0.7, 0.3, 1) 200ms,
+    opacity 420ms ease 200ms;
+}
+
+/* ---- the section: a dotted seabed contour, drawn at or below true scale ---
+   Top edge = the sea surface, bottom edge = 1200 m, both linear. Dots, not a
+   stroke: the seabed in the world is made of dots, and a dot placed in percent
+   on both axes needs no SVG, no canvas and no JS on resize. Brightness lives on
+   the CONTAINER so hover animates one opacity instead of 145 backgrounds. */
+.sg-section {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  /* the band's bottom edge (1200 m) is the rule's own hairline, 18px down: the
+     profile lands ON the baseline where the slope bottoms out, which is both
+     the truth about an abyssal plain and three more pixels of section than a
+     band floating above the rule could have had */
+  height: 18px;
+  opacity: 0.55;
+  transition: opacity var(--hover-ms) ease;
+}
+.sg-bed {
+  position: absolute;
+  width: 2px;
+  height: 1px;
+  margin-left: -1px;
+  background: var(--brass-28);
+  box-shadow: var(--sg-casing);
+}
+/* the plumb from the vessel down to the rule — the depth of water under it */
+.sg-drop {
+  position: absolute;
+  width: 1px;
+  background: var(--brass-20);
+  opacity: 0.9;
+}
+/* the vessel itself, riding the contour */
+.sg-mark {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  margin: -1px 0 0 -1px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow:
+    0 0 6px rgba(255, 195, 122, 0.8),
+    0 0 3px 1px rgba(2, 4, 7, 0.62);
+}
+
+/* ---- the rule: 22px hit strip, 1px brass hairline across its middle ------ */
+.sg-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 12px;
+  height: 22px;
+  pointer-events: auto;
+  cursor: ew-resize;
+  outline: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* full span of the transect (0 -> 36 km), the dimmest hairline in the app */
+.sg-rule::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 1px;
+  background: var(--brass-14);
+  box-shadow: var(--sg-casing);
+  transition: background var(--hover-ms) ease;
+}
+/* the stretch the vessel can actually reach (shoreRange() min..max): it stops
+   inshore in 4 m of water rather than beaching itself */
+.sg-reach {
+  position: absolute;
+  top: 6px;
+  height: 1px;
+  background: var(--brass-28);
+  box-shadow: var(--sg-casing);
+  transition: background var(--hover-ms) ease;
+}
+
+/* ---- graduations: minor every 2 km, major (numbered) every 6 km ---------- */
+.sg-tick {
+  position: absolute;
+  top: 7px;
+  width: 1px;
+  height: 4px; /* flush under the hairline, growing toward the numerals */
+  background: var(--brass-20);
+  box-shadow: var(--sg-casing);
+  transition: background var(--hover-ms) ease;
+}
+.sg-tick.major {
+  height: 5px;
+  background: var(--brass-28);
+}
+/* the shelf break — the profile's one landmark, and the only place on this
+   axis where the seabed does anything sudden. Brighter, not longer: it shares
+   its position with the "18" numeral. */
+.sg-tick.landmark {
+  height: 5px;
+  background: var(--brass-50);
+}
+
+/* ---- the set-point bug: where the vessel is HEADED ----------------------- */
+.sg-bug {
+  position: absolute;
+  top: 7px;
+  width: 1px;
+  height: 6px;
+  background: var(--brass-50);
+  opacity: 0;
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- the needle: the plate's 2x10px amber gauge needle, stood upright ---- */
+.sg-needle {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 12px;
+  margin-left: -1px;
+  background: var(--amber);
+  box-shadow:
+    0 0 7px rgba(255, 195, 122, 0.8),
+    0 0 3px 1px rgba(2, 4, 7, 0.62);
+  pointer-events: none;
+}
+
+/* ---- numerals: tiny, centred on the major ticks, km offshore ------------- */
+.sg-scale {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 25px;
+  height: 9px;
+  pointer-events: none;
+}
+.sg-num {
+  position: absolute;
+  transform: translateX(-50%);
+  font: 400 8px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  line-height: 9px;
+  color: var(--warm-30);
+  text-shadow: var(--sg-halo);
+  white-space: nowrap;
+  transition: color var(--hover-ms) ease;
+}
+
+/* ---- the readout rides the needle ---------------------------------------
+   Clamped in CSS rather than JS: it can ride to either end of the transect
+   without walking off the instrument, and clamping in the stylesheet costs no
+   layout read on the frame path. */
+.sg-read {
+  position: absolute;
+  top: 34px;
+  left: clamp(78px, var(--sg-x, 50%), calc(100% - 78px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.sg-value {
+  /* line-height pinned so the row is exactly the 10px the strip budgets for it
+     — the shorthand's `normal` would make the flex row 16px tall and hang the
+     readout off the bottom of the instrument */
+  font: 400 10px/10px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--amber);
+  text-shadow: var(--sg-halo);
+}
+/* the zone name is what makes this a PLACE and not a slider */
+.sg-zone {
+  font: 500 10px/10px var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.14em;
+  color: var(--amber-bright);
+  opacity: 0.7;
+  text-shadow: var(--sg-halo);
+  transition: opacity var(--hover-ms) ease;
+}
+
+/* ---- awake (hover / focus / drag): one step up, 180ms ------------------- */
+#shoregauge.awake .sg-section {
+  opacity: 0.9;
+}
+#shoregauge.awake .sg-num {
+  color: var(--warm-50);
+}
+#shoregauge.awake .sg-tick {
+  background: var(--brass-28);
+}
+#shoregauge.awake .sg-tick.major,
+#shoregauge.awake .sg-tick.landmark {
+  background: var(--brass-50);
+}
+#shoregauge.awake .sg-rule::before {
+  background: var(--brass-20);
+}
+#shoregauge.awake .sg-reach {
+  background: var(--brass-50);
+}
+#shoregauge.awake .sg-zone {
+  opacity: 0.85;
+}
+
+/* ---- narrow viewports ---------------------------------------------------
+   Only the OFFSHORE end may tuck in: the weather rotary's reach is a hover
+   state, so 140px still clears its resting dial by 80px and its grown one by
+   10px. The inshore end cannot move — the depth gauge's readout is a fixed
+   pixel footprint that does not shrink with the viewport. */
+@media (max-width: 900px) {
+  #shoregauge {
+    right: 140px;
+  }
+}
+
+/* ---- State C ambient: sinks with the rest of the chrome ----------------- */
+body.ambient #shoregauge {
+  transform: translateY(130px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 1200ms cubic-bezier(0.55, 0, 0.85, 0.45) 80ms,
+    opacity 1000ms ease 220ms;
+}
+/* the strip sets pointer-events:auto, so it must be switched off explicitly */
+body.ambient #shoregauge .sg-rule,
+body.inspecting #shoregauge .sg-rule {
+  pointer-events: none;
+}
+
+/* ---- boot gate (same rule as the rest of the chrome) -------------------- */
+body:not(.booted) #shoregauge {
+  visibility: hidden;
+}

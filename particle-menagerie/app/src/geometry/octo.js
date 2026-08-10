@@ -12,14 +12,95 @@
 // re-parameterizes by true arc length (§6) and provides RMF frames (§2) and
 // curvature for the sway clamp (§5).
 
-import { mulberry32 } from './rng.js';
+import { mulberry32, hashName } from './rng.js';
 import { createSpine, makeRingTables, KAPPA_R_MAX, RING_SHRINK, TAU } from './spine.js';
 
 // incommensurate secondary rate (spec §1 spirit) — side wave never locks
 // phase with the main curl wave
 const W_RATIO = Math.SQRT2 * 1.618033988749895 * 0.5;
 const SWAY_MAX = 2.4; // slider 2.4 = max safe sway (spec §5 normalization)
-const ARMS = 8;
+
+// ---- named-species morph presets (v3.8) -----------------------------------
+// octo.js had NO preset system, so squid, cuttlefish, nautilus, vampire squid
+// and firefly squid were all the SAME hemispherical dome with eight equal
+// drooping arms — i.e. five names for one octopus. The axes below are the
+// things that actually separate a coleoid from its neighbours:
+//   arms      appendage count (was a module const, so no morph could ask for
+//             10 or for a nautilus's bundle)
+//   armLen/armRad/bend   length ×, thickness ×, rest droop curvature ×
+//   tentN/tentMul/tentClub  the LAST tentN arms become long feeding tentacles
+//             at tentMul × the rest, optionally with a widened club tip. Two
+//             long tentacles among eight short arms is what makes a squid a
+//             squid rather than an octopus.
+//   mantleH/mantleR   dome semi-height ×, equatorial radius ×
+//   phi1      meridian span. The stock 1.95 sweeps PAST the equator so the
+//             skirt tucks under (the octopus look); ~1.15 closes it into a
+//             torpedo instead.
+//   apex      0..1 pointed rather than domed apex (squid tail)
+//   flatten   0..1 squash the revolution surface along local z — a cuttlefish
+//             mantle is an OVAL in cross-section, not a circle
+//   fin       terminal fin pair: finSpan/finChord/finFrac/finLen. `finLen`
+//             near 1 runs the fin the whole mantle flank (the cuttlefish
+//             skirt); small values give a squid's arrowhead tail fins.
+//   web       0..1 the vampire squid's cloak: a SHEET spanning each
+//             consecutive pair of arm centrelines. Without it the arms hang as
+//             eight bare strands and the animal is an octopus.
+//   shell     0..1 a logarithmic-spiral shell (nautilus), r = a·e^{bθ} swept
+//             as a tapering tube. A genuinely new part — no parameter tweak
+//             can grow a shell.
+export const OCTO_MORPHS = {
+  squid: {
+    arms: 10, armLen: 0.42, armRad: 0.85, bend: 0.32, tentN: 2, tentMul: 2.5,
+    tentClub: 1, mantleH: 2.35, mantleR: 0.6, phi1: 1.12, apex: 1.15,
+    finSpan: 1.0, finChord: 0.34, finFrac: 0.02, finLen: 0.38,
+    scale: 1.05, tempo: 1.1,
+  },
+  fireflysquid: {
+    arms: 10, armLen: 0.3, armRad: 0.8, bend: 0.3, tentN: 2, tentMul: 2.4,
+    tentClub: 1, mantleH: 2.15, mantleR: 0.62, phi1: 1.14, apex: 1.1,
+    finSpan: 0.85, finChord: 0.32, finFrac: 0.03, finLen: 0.34,
+    scale: 0.5, tempo: 1.25,
+  },
+  cuttlefish: {
+    arms: 10, armLen: 0.3, armRad: 1.0, bend: 0.62, tentN: 2, tentMul: 1.9,
+    tentClub: 0.6, mantleH: 1.45, mantleR: 0.82, phi1: 1.42, apex: 0.25,
+    flatten: 0.5, finSpan: 0.42, finChord: 0.2, finFrac: 0.06, finLen: 0.92,
+    scale: 1.0, tempo: 0.95,
+  },
+  vampyroteuthis: {
+    arms: 8, armLen: 0.52, armRad: 1.0, bend: 0.95, mantleH: 1.15,
+    mantleR: 0.85, phi1: 1.62, apex: 0.35, web: 1,
+    finSpan: 0.4, finChord: 0.3, finFrac: 0.12, finLen: 0.22,
+    scale: 0.95, tempo: 0.8,
+  },
+  nautilus: {
+    arms: 14, armStations: 14, armDots: 5, armLen: 0.2, armRad: 0.5,
+    bend: 0.18, mantleH: 0.42, mantleR: 0.4, phi1: 1.5, apex: 0,
+    shell: 1, shellR: 1.28, shellWhorl: 2.2, shellGrow: 3.1, shellFat: 0.4,
+    scale: 1.1, tempo: 0.7, speed: 0.6,
+  },
+};
+const OCTO_ALIASES = {
+  squid: ['squid', 'glasssquid', 'glass squid', 'cranchiid'],
+  fireflysquid: ['fireflysquid', 'firefly squid', 'watasenia'],
+  cuttlefish: ['cuttlefish'],
+  vampyroteuthis: ['vampyroteuthis', 'vampiresquid', 'vampire squid'],
+  nautilus: ['nautilus', 'argonaut'],
+};
+const MORPH_BY_SEED = new Map();
+for (const k of Object.keys(OCTO_MORPHS)) {
+  for (const n of OCTO_ALIASES[k] || [k]) {
+    MORPH_BY_SEED.set(hashName(n), OCTO_MORPHS[k]);
+    MORPH_BY_SEED.set(hashName(n + 's'), OCTO_MORPHS[k]);
+  }
+}
+/** Preset lookup by name, for lexicon.js. */
+export function octoMorphFor(word) {
+  if (!word) return null;
+  const w = String(word).toLowerCase().trim();
+  if (Object.prototype.hasOwnProperty.call(OCTO_MORPHS, w)) return OCTO_MORPHS[w];
+  return MORPH_BY_SEED.get(hashName(w)) || null;
+}
 
 export function makeOcto(seed, opts = {}) {
   // v3.2 density uplift: mantle 16×40 (640) → 24×56 (1344) — meridian pitch
@@ -28,19 +109,43 @@ export function makeOcto(seed, opts = {}) {
   // into armDots (5 → 8) because at 5 the thin arm tube read as a flat dotted
   // ribbon from the side; 8 closes the cross-section (arm circumference
   // 2π·0.11/8 ≈ 0.086 vs station pitch 2.55/39 ≈ 0.065). 1800 → 3904 (2.17×).
+  // preset resolution FIRST: it decides the arm count and which optional parts
+  // (fins, web, shell) exist, so it must precede every count. Pure function of
+  // (opts.morph, seed) — no RNG — so determinism is untouched.
+  const P0 = opts.morph ?? MORPH_BY_SEED.get(seed >>> 0) ?? null;
+  const ARMS = Math.max(3, Math.min(20, Math.round(opts.arms ?? P0?.arms ?? 8)));
   const mantleRings = opts.mantleRings ?? 24;
   const mantleDots = opts.mantleDots ?? 56;
-  const armStations = opts.armStations ?? 40;
-  const armDots = opts.armDots ?? 8;
+  const armStations = opts.armStations ?? P0?.armStations ?? 40;
+  const armDots = opts.armDots ?? P0?.armDots ?? 8;
   const mantleCount = mantleRings * mantleDots;
   const armCount = ARMS * armStations * armDots;
-  const count = mantleCount + armCount; // defaults: 1344 + 2560 = 3904
+  // optional parts
+  const finSpanF = P0?.finSpan ?? 0;
+  const nQu = finSpanF > 0 ? 12 : 0; //  fin: spanwise stations
+  const nQv = finSpanF > 0 ? 10 : 0; //       chordwise rows along the mantle
+  const finCount = 2 * nQu * nQv;
+  const webF = P0?.web ?? 0;
+  const nWu = webF > 0 ? 12 : 0; //     web: stations along the arm
+  const nWv = webF > 0 ? 5 : 0; //           rows across the gore
+  const webCount = ARMS * nWu * nWv;
+  const shellF = P0?.shell ?? 0;
+  const nSu = shellF > 0 ? 76 : 0; //   shell: stations along the spiral
+  const nSv = shellF > 0 ? 12 : 0; //          dots per whorl ring
+  const shellDots = nSu * nSv;
+  const count = mantleCount + armCount + finCount + webCount + shellDots;
   const ringCount = mantleRings + armStations;
 
-  const R = opts.mantleRadius ?? 0.72; // equatorial mantle radius
-  const H = opts.mantleHeight ?? 0.95; // dome semi-height (v2: ×1.2 elongation)
-  const armLenBase = opts.armLength ?? 2.55;
-  const armR0 = opts.armRadius ?? 0.11;
+  const R = (opts.mantleRadius ?? 0.72) * (P0?.mantleR ?? 1);
+  const H = (opts.mantleHeight ?? 0.95) * (P0?.mantleH ?? 1);
+  const APEX = P0?.apex ?? 0; // 0 = domed apex, 1+ = pointed (squid tail)
+  const FLAT = 1 - 0.9 * (P0?.flatten ?? 0); // local-z squash of the mantle
+  const armLenBase = (opts.armLength ?? 2.55) * (P0?.armLen ?? 1);
+  const armR0 = (opts.armRadius ?? 0.11) * (P0?.armRad ?? 1);
+  const BENDM = P0?.bend ?? 1; // rest droop ×
+  const tentN = Math.min(ARMS, Math.round(P0?.tentN ?? 0));
+  const tentMul = P0?.tentMul ?? 1;
+  const tentClub = P0?.tentClub ?? 0;
   // Centerline integration/sample points. DO NOT retune with the density: M is
   // not just a sampler, it is the integration STEP of the arm centerline
   // (integrateArm walks r += (L/(M-1))·cos φ), so the quadrature error is part
@@ -87,13 +192,15 @@ export function makeOcto(seed, opts = {}) {
   // equator so the skirt tucks under (v2 dome look). y is static; breathing
   // scales radius only, so per-ring normal tilt is recomputed per frame.
   const PHI0 = 0.14;
-  const PHI1 = 1.95;
+  const PHI1 = P0?.phi1 ?? 1.95;
   const mRad0 = new Float32Array(mantleRings);
   const mY = new Float32Array(mantleRings);
   const yOff = -H * Math.cos(PHI1); // skirt rim sits at y = 0
   for (let i = 0; i < mantleRings; i++) {
     const phi = PHI0 + ((PHI1 - PHI0) * i) / (mantleRings - 1);
-    mRad0[i] = R * Math.sin(phi);
+    // apex > 0 raises sin(phi) to a power, which pulls the profile in near the
+    // apex: a POINTED tail instead of a rounded dome. apex 0 = identity.
+    mRad0[i] = R * Math.pow(Math.sin(phi), 1 + 1.6 * APEX);
     mY[i] = yOff + H * Math.cos(phi);
   }
   const mRad = new Float32Array(mantleRings); // breathed radius (per frame)
@@ -104,10 +211,19 @@ export function makeOcto(seed, opts = {}) {
   // ---- arms: static per-arm/per-station tables
   const armLenArr = new Float32Array(ARMS);
   const azBase = new Float32Array(ARMS);
+  const armIsTent = new Uint8Array(ARMS);
   for (let k = 0; k < ARMS; k++) {
     // v2 soul: dist scale 0.75+0.25·sin(k·2.7) — deterministic length spread
     armLenArr[k] = armLenBase * (0.75 + 0.25 * Math.sin(k * 2.7));
     azBase[k] = (k / ARMS) * TAU + azJit[k];
+  }
+  // v3.8: the last tentN appendages become FEEDING TENTACLES — far longer
+  // than the rest, placed on opposite sides so the pair reads. Two long
+  // tentacles among eight short arms is the squid/cuttlefish signature.
+  for (let n = 0; n < tentN; n++) {
+    const k = Math.round((n * ARMS) / Math.max(1, tentN)) % ARMS;
+    armIsTent[k] = 1;
+    armLenArr[k] *= tentMul;
   }
   const RSK = R * Math.sin(PHI1) * 0.92; // arm attach radius on the skirt
   const Y_BASE = 0.04;
@@ -115,10 +231,16 @@ export function makeOcto(seed, opts = {}) {
   // arm radius profile: full at base, fine tip (v2: 1−0.8u, pushed further)
   const armProf = new Float32Array(armStations);
   const armRNom = new Float32Array(armStations);
+  const tentProf = new Float32Array(armStations); // clubbed tip variant
+  const tentRNom = new Float32Array(armStations);
   for (let i = 0; i < armStations; i++) {
     const u = i / (armStations - 1);
     armProf[i] = 1 - 0.86 * Math.pow(u, 0.9);
     armRNom[i] = armR0 * armProf[i];
+    // a feeding tentacle is a thin stalk that WIDENS into a club at the tip
+    const club = tentClub > 0 ? tentClub * 2.6 * Math.pow(Math.max(0, u - 0.7) / 0.3, 2) : 0;
+    tentProf[i] = 0.45 * armProf[i] + club;
+    tentRNom[i] = armR0 * tentProf[i];
   }
   // per-arm quantized ring tables (shared twist, arm-offset start angle)
   const cosTA = new Float32Array(ARMS * armStations * armDots);
